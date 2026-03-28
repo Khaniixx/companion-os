@@ -73,6 +73,18 @@ Companion OS welcomes contributions!  See the `CONTRIBUTING.md` file (to be crea
 3. Open a pull request with a clear description of your changes.
 4. Ensure that your PR passes all CI checks and includes relevant tests.
 
+## Desktop Installation Flow
+
+The desktop onboarding flow should remain consistent across product and implementation work:
+
+1. Environment Check
+2. Prepare Prerequisites
+3. Install OpenClaw
+4. Configure AI using a local, openâ€‘source model by default
+5. Start & Connect
+
+Core features should work without requiring API keys during this default path.
+
 ### Developing Skills
 
 Skills extend the agent’s abilities by wrapping functionality behind a stable interface.  Each skill lives in its own folder under `skills/` and contains a `SKILL.md` manifest specifying metadata (name, description, allowed actions) and any code required to implement it.  Companion OS is compatible with OpenClaw‑style skills, but all community skills must declare permissions and pass a security review before distribution.

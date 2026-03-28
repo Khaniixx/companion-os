@@ -1,0 +1,744 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+  background:
+    radial-gradient(circle at top, rgba(120, 176, 255, 0.28), transparent 34%),
+    radial-gradient(circle at bottom left, rgba(78, 216, 178, 0.16), transparent 28%),
+    #07111f;
+  color: #f3f8ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: transparent;
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 420px);
+  background:
+    linear-gradient(135deg, rgba(10, 24, 42, 0.98), rgba(6, 14, 24, 0.92)),
+    rgba(7, 17, 31, 0.94);
+}
+
+.installer-shell {
+  min-height: 100vh;
+  padding: 40px;
+  background:
+    radial-gradient(circle at top right, rgba(132, 236, 214, 0.16), transparent 28%),
+    radial-gradient(circle at bottom left, rgba(145, 178, 255, 0.18), transparent 34%),
+    linear-gradient(135deg, rgba(10, 24, 42, 0.98), rgba(6, 14, 24, 0.94));
+}
+
+.installer-shell--loading {
+  display: grid;
+  align-items: center;
+}
+
+.installer-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 360px);
+  gap: 24px;
+  align-items: start;
+  margin-bottom: 28px;
+}
+
+.installer-copy h1 {
+  margin: 0;
+  max-width: 12ch;
+  font-family: "Bahnschrift", "Segoe UI Variable Display", sans-serif;
+  font-size: clamp(2.8rem, 5vw, 4.6rem);
+  line-height: 0.94;
+}
+
+.installer-copy p {
+  margin: 18px 0 0;
+  max-width: 54ch;
+  color: rgba(225, 236, 250, 0.78);
+  line-height: 1.6;
+}
+
+.installer-progress-card,
+.installer-panel {
+  padding: 22px 24px;
+  border-radius: 24px;
+  background: rgba(8, 18, 32, 0.8);
+  border: 1px solid rgba(158, 189, 223, 0.12);
+  backdrop-filter: blur(16px);
+}
+
+.installer-progress-card__header,
+.installer-step__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.installer-progress-card p {
+  margin: 14px 0 0;
+  color: rgba(225, 236, 250, 0.8);
+  line-height: 1.5;
+}
+
+.installer-progress-bar {
+  margin-top: 14px;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(29, 49, 77, 0.9);
+  overflow: hidden;
+}
+
+.installer-progress-bar__value {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #84ecd6, #91b2ff);
+}
+
+.installer-error {
+  color: #ffd3c6;
+}
+
+.installer-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(300px, 380px);
+  gap: 24px;
+}
+
+.installer-steps {
+  display: grid;
+  gap: 16px;
+}
+
+.installer-step {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 18px;
+  padding: 22px 24px;
+  border-radius: 24px;
+  background: rgba(8, 18, 32, 0.8);
+  border: 1px solid rgba(158, 189, 223, 0.12);
+  backdrop-filter: blur(16px);
+}
+
+.installer-step__index {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: "Bahnschrift", "Segoe UI Variable Display", sans-serif;
+  font-size: 1rem;
+  background: rgba(17, 33, 56, 0.92);
+  color: #f3f8ff;
+}
+
+.installer-step__body h2,
+.installer-panel h2 {
+  margin: 0;
+  font-family: "Bahnschrift", "Segoe UI Variable Display", sans-serif;
+  font-size: 1.3rem;
+}
+
+.installer-step__body p,
+.installer-panel__hint {
+  margin: 10px 0 0;
+  color: rgba(225, 236, 250, 0.76);
+  line-height: 1.5;
+}
+
+.installer-step__badge {
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 0.84rem;
+  text-transform: capitalize;
+}
+
+.installer-step__badge--pending {
+  background: rgba(65, 85, 118, 0.22);
+  color: #d4e3ff;
+}
+
+.installer-step__badge--active {
+  background: linear-gradient(135deg, #84ecd6, #b9fff0);
+  color: #08171d;
+}
+
+.installer-step__badge--complete {
+  background: linear-gradient(135deg, #81f0d6, #91b2ff);
+  color: #07111f;
+}
+
+.installer-step__badge--error {
+  background: linear-gradient(135deg, #ffc1ad, #ffd8c4);
+  color: #3a1100;
+}
+
+.installer-step--active {
+  border-color: rgba(132, 236, 214, 0.3);
+}
+
+.installer-step--complete {
+  border-color: rgba(145, 178, 255, 0.28);
+}
+
+.installer-step--error {
+  border-color: rgba(255, 193, 173, 0.34);
+}
+
+.installer-sidebar {
+  display: grid;
+  gap: 16px;
+}
+
+.installer-checklist {
+  margin: 16px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+  color: #f3f8ff;
+}
+
+.installer-label {
+  display: block;
+  margin-top: 16px;
+  font-size: 0.92rem;
+  color: rgba(210, 224, 246, 0.76);
+}
+
+.installer-select {
+  margin-top: 10px;
+  width: 100%;
+  border-radius: 18px;
+  border: 1px solid rgba(153, 182, 220, 0.14);
+  background: rgba(9, 21, 38, 0.95);
+  color: #f4f8ff;
+  padding: 14px 16px;
+}
+
+.installer-primary-button {
+  margin-top: 18px;
+  width: 100%;
+  border: 0;
+  border-radius: 999px;
+  padding: 14px 18px;
+  color: #07111f;
+  background: linear-gradient(135deg, #81f0d6, #a1b8ff);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.installer-primary-button:disabled {
+  opacity: 0.72;
+  cursor: wait;
+}
+
+.stage-panel {
+  position: relative;
+  overflow: hidden;
+  padding: 48px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 32px;
+}
+
+.stage-panel::before {
+  content: "";
+  position: absolute;
+  inset: 32px;
+  border: 1px solid rgba(158, 189, 223, 0.12);
+  border-radius: 28px;
+  pointer-events: none;
+}
+
+.stage-panel__copy {
+  position: relative;
+  z-index: 1;
+  max-width: 520px;
+}
+
+.eyebrow {
+  display: inline-flex;
+  margin-bottom: 12px;
+  font-family: "Bahnschrift", "Segoe UI Variable Display", sans-serif;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  color: #84ecd6;
+}
+
+.stage-panel h1,
+.chat-panel h2 {
+  margin: 0;
+  font-family: "Bahnschrift", "Segoe UI Variable Display", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.stage-panel h1 {
+  max-width: 12ch;
+  font-size: clamp(2.8rem, 5vw, 4.8rem);
+  line-height: 0.94;
+}
+
+.stage-panel p {
+  margin: 18px 0 0;
+  max-width: 48ch;
+  color: rgba(225, 236, 250, 0.78);
+  line-height: 1.6;
+}
+
+.avatar-shell {
+  position: relative;
+  align-self: center;
+  width: min(100%, 520px);
+  aspect-ratio: 1 / 1;
+  display: grid;
+  place-items: center;
+  transition: transform 220ms ease, filter 220ms ease, opacity 220ms ease;
+}
+
+.avatar-shell--idle {
+  opacity: 0.94;
+}
+
+.avatar-shell--listening {
+  transform: translateY(-4px) scale(1.01);
+  filter: saturate(1.05);
+}
+
+.avatar-shell--thinking {
+  transform: translateY(-6px);
+  filter: saturate(0.92) hue-rotate(-8deg);
+}
+
+.avatar-shell--talking {
+  transform: translateY(-8px) scale(1.02);
+  filter: saturate(1.15);
+}
+
+.avatar-aura {
+  position: absolute;
+  inset: 10%;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(123, 166, 255, 0.5), rgba(52, 88, 181, 0.12) 56%, transparent 72%),
+    radial-gradient(circle at 65% 35%, rgba(136, 239, 215, 0.28), transparent 28%);
+  filter: blur(16px);
+  animation: breathe 6s ease-in-out infinite;
+}
+
+.avatar-shell--idle .avatar-aura {
+  animation-duration: 6s;
+}
+
+.avatar-shell--listening .avatar-aura {
+  background:
+    radial-gradient(circle, rgba(116, 222, 198, 0.52), rgba(52, 88, 181, 0.12) 56%, transparent 72%),
+    radial-gradient(circle at 65% 35%, rgba(161, 247, 232, 0.32), transparent 28%);
+  animation-duration: 2.6s;
+}
+
+.avatar-shell--thinking .avatar-aura {
+  background:
+    radial-gradient(circle, rgba(255, 196, 123, 0.42), rgba(52, 88, 181, 0.12) 56%, transparent 72%),
+    radial-gradient(circle at 65% 35%, rgba(255, 231, 168, 0.28), transparent 28%);
+  animation-duration: 1s;
+}
+
+.avatar-shell--talking .avatar-aura {
+  animation-duration: 1.4s;
+}
+
+.avatar-body {
+  position: relative;
+  width: min(74%, 360px);
+  aspect-ratio: 1 / 1.05;
+  border-radius: 44% 44% 40% 40%;
+  background:
+    linear-gradient(180deg, rgba(241, 248, 255, 0.92), rgba(168, 193, 231, 0.88)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent);
+  box-shadow:
+    inset 0 -28px 48px rgba(103, 144, 205, 0.44),
+    0 24px 80px rgba(0, 0, 0, 0.34);
+  display: grid;
+  place-items: center;
+}
+
+.avatar-body::before {
+  content: "";
+  position: absolute;
+  inset: 9%;
+  border-radius: 42%;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+}
+
+.avatar-face {
+  position: relative;
+  width: 44%;
+  height: 28%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.avatar-eye {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #091a2f;
+  box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.64);
+  transition:
+    transform 140ms ease,
+    height 140ms ease,
+    width 140ms ease,
+    border-radius 140ms ease,
+    opacity 140ms ease;
+}
+
+.avatar-eye--idle {
+  opacity: 0.92;
+}
+
+.avatar-eye--listening {
+  transform: translateY(-1px) scale(1.04);
+}
+
+.avatar-eye--thinking {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  transform: translateY(1px);
+}
+
+.avatar-eye--talking {
+  transform: translateY(-2px) scale(1.08);
+}
+
+.avatar-mouth {
+  position: absolute;
+  left: 50%;
+  bottom: -26px;
+  transform: translateX(-50%);
+  width: 72px;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(9, 26, 47, 0.82);
+  transition:
+    height 140ms ease,
+    width 140ms ease,
+    bottom 140ms ease,
+    border-radius 140ms ease,
+    transform 140ms ease;
+}
+
+.avatar-mouth--idle {
+  width: 72px;
+}
+
+.avatar-mouth--listening {
+  width: 42px;
+  height: 8px;
+  bottom: -24px;
+}
+
+.avatar-mouth--thinking {
+  width: 24px;
+  height: 24px;
+  bottom: -32px;
+  border-radius: 50%;
+  transform: translateX(-50%) scale(0.94);
+}
+
+.avatar-mouth--talking {
+  width: 54px;
+  height: 28px;
+  bottom: -34px;
+  border-radius: 40% 40% 60% 60%;
+}
+
+.avatar-status {
+  position: absolute;
+  left: 50%;
+  bottom: 10%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 18px;
+  border-radius: 999px;
+  background: rgba(8, 17, 30, 0.56);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(167, 192, 231, 0.18);
+}
+
+.avatar-status__label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: rgba(180, 206, 239, 0.72);
+}
+
+.chat-panel {
+  border-left: 1px solid rgba(143, 169, 208, 0.14);
+  background: rgba(5, 13, 23, 0.82);
+  backdrop-filter: blur(20px);
+  padding: 32px 28px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 24px;
+}
+
+.chat-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.chat-panel__header h2 {
+  margin-top: 4px;
+  font-size: 1.6rem;
+}
+
+.status-pill {
+  padding: 9px 14px;
+  border-radius: 999px;
+  text-transform: capitalize;
+  font-size: 0.9rem;
+  border: 1px solid rgba(166, 191, 230, 0.16);
+}
+
+.status-pill--idle {
+  color: #d4e3ff;
+  background: rgba(66, 88, 124, 0.18);
+}
+
+.status-pill--listening {
+  color: #08171d;
+  background: linear-gradient(135deg, #84ecd6, #b9fff0);
+}
+
+.status-pill--thinking {
+  color: #2d1a03;
+  background: linear-gradient(135deg, #ffd08d, #fff0bf);
+}
+
+.status-pill--talking {
+  color: #0d1f27;
+  background: linear-gradient(135deg, #81f0d6, #91b2ff);
+}
+
+.message-list {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-right: 6px;
+}
+
+.message {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: 18px;
+}
+
+.message--companion {
+  background: rgba(22, 38, 61, 0.84);
+  border: 1px solid rgba(136, 169, 218, 0.14);
+}
+
+.message--user {
+  background: rgba(18, 54, 57, 0.72);
+  border: 1px solid rgba(120, 236, 214, 0.12);
+}
+
+.message__sender {
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(160, 189, 223, 0.74);
+}
+
+.message p {
+  margin: 0;
+  line-height: 1.5;
+  color: #ecf4ff;
+}
+
+.quick-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.quick-action-button {
+  border: 1px solid rgba(129, 240, 214, 0.24);
+  border-radius: 999px;
+  padding: 10px 16px;
+  background: rgba(9, 21, 38, 0.92);
+  color: #dffaf4;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease;
+}
+
+.quick-action-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(129, 240, 214, 0.5);
+}
+
+.quick-action-button:disabled {
+  opacity: 0.72;
+  cursor: wait;
+  transform: none;
+}
+
+.composer {
+  display: grid;
+  gap: 14px;
+}
+
+.composer__label {
+  font-size: 0.92rem;
+  color: rgba(210, 224, 246, 0.76);
+}
+
+.composer__input {
+  width: 100%;
+  resize: none;
+  border: 1px solid rgba(153, 182, 220, 0.14);
+  border-radius: 20px;
+  background: rgba(9, 21, 38, 0.95);
+  color: #f4f8ff;
+  padding: 16px 18px;
+  line-height: 1.5;
+  outline: none;
+  transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.composer__input:focus {
+  border-color: rgba(129, 240, 214, 0.48);
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 4px rgba(129, 240, 214, 0.08);
+}
+
+.composer__input:disabled {
+  opacity: 0.72;
+  cursor: wait;
+}
+
+.composer__submit {
+  justify-self: start;
+  border: 0;
+  border-radius: 999px;
+  padding: 13px 20px;
+  color: #07111f;
+  background: linear-gradient(135deg, #81f0d6, #a1b8ff);
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+
+.composer__submit:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 34px rgba(82, 130, 210, 0.22);
+}
+
+.composer__submit:disabled {
+  cursor: wait;
+  opacity: 0.72;
+  transform: none;
+  box-shadow: none;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(0.96);
+    opacity: 0.82;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 980px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .installer-shell {
+    padding: 24px;
+  }
+
+  .installer-hero,
+  .installer-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stage-panel {
+    min-height: 58svh;
+    padding: 32px 24px 16px;
+  }
+
+  .chat-panel {
+    border-left: 0;
+    border-top: 1px solid rgba(143, 169, 208, 0.14);
+    padding: 24px;
+  }
+
+  .stage-panel::before {
+    inset: 18px;
+  }
+}
+
+@media (max-width: 640px) {
+  .stage-panel h1 {
+    max-width: 10ch;
+    font-size: 2.6rem;
+  }
+
+  .installer-copy h1 {
+    max-width: 10ch;
+    font-size: 2.6rem;
+  }
+
+  .avatar-shell {
+    width: min(100%, 360px);
+  }
+
+  .chat-panel {
+    padding: 22px 18px;
+  }
+
+  .installer-shell {
+    padding: 18px;
+  }
+
+  .chat-panel__header {
+    flex-direction: column;
+  }
+}
