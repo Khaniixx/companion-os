@@ -1,14 +1,56 @@
+export type StepStatus =
+  | "pending"
+  | "active"
+  | "complete"
+  | "failed"
+  | "needs_action";
+
+export type InstallerStepId =
+  | "environment-check"
+  | "prepare-prerequisites"
+  | "install-openclaw"
+  | "configure-ai"
+  | "start-connect";
+
+export type DependencyStatus = {
+  id: string;
+  label: string;
+  category: "prerequisite" | "runtime" | string;
+  installed: boolean;
+  version: string | null;
+  guidance: string[];
+};
+
+export type InstallerStep = {
+  id: InstallerStepId;
+  title: string;
+  description: string;
+  status: StepStatus;
+  message: string;
+  error: string | null;
+  recovery_instructions: string[];
+  can_retry: boolean;
+  can_repair: boolean;
+};
+
 export type InstallerStatus = {
+  current_step: string;
+  completed: boolean;
   environment: {
+    checks: DependencyStatus[];
     node_installed: boolean;
     rust_installed: boolean;
     cpp_toolchain_installed: boolean;
+    runtime_dependencies_ready: boolean;
     missing_prerequisites: string[];
+    missing_runtime_dependencies: string[];
     all_ready: boolean;
   };
+  steps: Record<InstallerStepId, InstallerStep>;
   openclaw: {
     installed: boolean;
     install_path: string;
+    manifest_path: string;
   };
   ai: {
     provider: string;
@@ -16,7 +58,13 @@ export type InstallerStatus = {
   };
   connection: {
     connected: boolean;
+    message: string;
   };
+};
+
+export type EnvironmentCheckResult = {
+  environment: InstallerStatus["environment"];
+  step: InstallerStep;
 };
 
 export type PreparePrerequisitesResult = {
@@ -25,27 +73,31 @@ export type PreparePrerequisitesResult = {
   remaining: string[];
   message: string;
   environment: InstallerStatus["environment"];
+  step: InstallerStep;
 };
 
 export type InstallOpenClawResult = {
   install_path: string;
   message: string;
+  step: InstallerStep;
 };
 
 export type ConfigureAIResult = {
   provider: string;
   model: string;
   message: string;
+  step: InstallerStep;
 };
 
 export type StartConnectResult = {
   connected: boolean;
   message: string;
+  step: InstallerStep;
 };
 
 export type InstallerApi = {
   getInstallerStatus: () => Promise<InstallerStatus>;
-  checkEnvironment: () => Promise<InstallerStatus["environment"]>;
+  checkEnvironment: () => Promise<EnvironmentCheckResult>;
   preparePrerequisites: () => Promise<PreparePrerequisitesResult>;
   installOpenClaw: () => Promise<InstallOpenClawResult>;
   getModels: () => Promise<string[]>;
@@ -71,7 +123,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const installerApi: InstallerApi = {
   getInstallerStatus: () => request<InstallerStatus>("/api/installer/status"),
   checkEnvironment: () =>
-    request<InstallerStatus["environment"]>("/api/installer/environment-check", {
+    request<EnvironmentCheckResult>("/api/installer/environment-check", {
       method: "POST",
     }),
   preparePrerequisites: () =>
@@ -86,9 +138,7 @@ export const installerApi: InstallerApi = {
   configureAI: (model: string) =>
     request<ConfigureAIResult>("/api/installer/configure-ai", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model }),
     }),
   startAndConnect: () =>

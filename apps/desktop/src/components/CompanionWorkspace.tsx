@@ -1,12 +1,21 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 
+import {
+  clearCompanionSession,
+  loadCompanionSession,
+  persistCompanionSession,
+  type CompanionMessage,
+} from "../companionSession";
 import { companionEventBus } from "../eventBus";
+import { installerApi } from "../installerApi";
 import { CompanionAvatar, type CompanionState } from "./CompanionAvatar";
 
-type Message = {
-  id: number;
-  sender: "companion" | "user";
-  text: string;
+type CompanionResponse = {
+  ok: boolean;
+  route: string;
+  user_message: string;
+  assistant_response: string;
+  action?: Record<string, unknown> | null;
 };
 
 type OpenAppResponse = {
@@ -15,12 +24,20 @@ type OpenAppResponse = {
   message: string;
 };
 
+type BrowserHelperResponse = {
+  ok: boolean;
+  action: string;
+  request: string;
+  url: string;
+  message: string;
+};
+
 type PermissionResponse = {
   permission: string;
   granted: boolean;
 };
 
-const starterMessages: Message[] = [
+const starterMessages: CompanionMessage[] = [
   {
     id: 1,
     sender: "companion",
@@ -31,13 +48,26 @@ const starterMessages: Message[] = [
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 export function CompanionWorkspace() {
-  const [companionState, setCompanionState] = useState<CompanionState>("idle");
+  const [initialSession] = useState(() => loadCompanionSession(starterMessages));
+  const [companionState, setCompanionState] = useState<CompanionState>(
+    initialSession.companionState,
+  );
   const [draft, setDraft] = useState("");
-  const [messages, setMessages] = useState<Message[]>(starterMessages);
+  const [messages, setMessages] = useState<CompanionMessage[]>(
+    initialSession.messages,
+  );
   const [isSending, setIsSending] = useState(false);
   const [hasOpenAppPermission, setHasOpenAppPermission] = useState(false);
+  const [hasOpenUrlPermission, setHasOpenUrlPermission] = useState(false);
   const [isLoadingOpenAppPermission, setIsLoadingOpenAppPermission] =
     useState(true);
+  const [isLoadingOpenUrlPermission, setIsLoadingOpenUrlPermission] =
+    useState(true);
+  const [selectedModel, setSelectedModel] = useState("llama3.1:8b-instruct");
+  const [installerCompleted, setInstallerCompleted] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
+  const [isRepairingOpenClaw, setIsRepairingOpenClaw] = useState(false);
   const nextMessageIdRef = useRef(2);
   const draftRef = useRef("");
   const isSendingRef = useRef(false);
@@ -49,40 +79,58 @@ export function CompanionWorkspace() {
   }, [isSending]);
 
   useEffect(() => {
+    const highestId = messages.reduce(
+      (currentHighestId, message) => Math.max(currentHighestId, message.id),
+      0,
+    );
+    nextMessageIdRef.current = highestId + 1;
+  }, [messages]);
+
+  useEffect(() => {
     let active = true;
 
-    async function loadOpenAppPermission(): Promise<void> {
+    async function loadWorkspaceState(): Promise<void> {
       try {
-        const response = await fetch(
-          `${API_BASE_URL}/api/preferences/permissions/open_app`,
-        );
+        const [openAppResponse, openUrlResponse, installerStatus] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/preferences/permissions/open_app`),
+          fetch(`${API_BASE_URL}/api/preferences/permissions/open_url`),
+          installerApi.getInstallerStatus(),
+        ]);
 
-        if (!response.ok) {
-          throw new Error(`Runtime returned ${response.status}`);
+        if (!openAppResponse.ok || !openUrlResponse.ok) {
+          throw new Error("Runtime returned an unexpected permissions response");
         }
 
-        const data: PermissionResponse =
-          (await response.json()) as PermissionResponse;
+        const [openAppData, openUrlData] = (await Promise.all([
+          openAppResponse.json(),
+          openUrlResponse.json(),
+        ])) as [PermissionResponse, PermissionResponse];
 
         if (!active) {
           return;
         }
 
-        setHasOpenAppPermission(data.granted);
+        setHasOpenAppPermission(openAppData.granted);
+        setHasOpenUrlPermission(openUrlData.granted);
+        setSelectedModel(installerStatus.ai.model);
+        setInstallerCompleted(installerStatus.completed);
       } catch {
         if (!active) {
           return;
         }
 
         setHasOpenAppPermission(false);
+        setHasOpenUrlPermission(false);
+        setInstallerCompleted(false);
       } finally {
         if (active) {
           setIsLoadingOpenAppPermission(false);
+          setIsLoadingOpenUrlPermission(false);
         }
       }
     }
 
-    void loadOpenAppPermission();
+    void loadWorkspaceState();
 
     return () => {
       active = false;
@@ -117,6 +165,15 @@ export function CompanionWorkspace() {
       }, 1400);
     }
 
+    function startErrorState(): void {
+      clearTalkingTimer();
+      setCompanionState("error");
+      talkingTimerRef.current = window.setTimeout(() => {
+        talkingTimerRef.current = null;
+        settleCompanionState();
+      }, 1800);
+    }
+
     const unsubscribeDraftChanged = companionEventBus.subscribe(
       "draftChanged",
       ({ payload }) => {
@@ -141,8 +198,13 @@ export function CompanionWorkspace() {
 
     const unsubscribeResponseReceived = companionEventBus.subscribe(
       "responseReceived",
-      () => {
-        startTalkingState();
+      ({ payload }) => {
+        if (payload.ok) {
+          startTalkingState();
+          return;
+        }
+
+        startErrorState();
       },
     );
 
@@ -181,10 +243,29 @@ export function CompanionWorkspace() {
     };
   }, []);
 
+  useEffect(() => {
+    persistCompanionSession(messages, companionState);
+  }, [messages, companionState]);
+
   function nextMessageId(): number {
     const currentId = nextMessageIdRef.current;
     nextMessageIdRef.current += 1;
     return currentId;
+  }
+
+  function appendCompanionMessage(text: string, ok: boolean): void {
+    setMessages((currentMessages) => [
+      ...currentMessages,
+      {
+        id: nextMessageId(),
+        sender: "companion",
+        text,
+      },
+    ]);
+    companionEventBus.emit("responseReceived", {
+      message: text,
+      ok,
+    });
   }
 
   async function persistOpenAppPermission(granted: boolean): Promise<boolean> {
@@ -213,6 +294,102 @@ export function CompanionWorkspace() {
     return data.granted;
   }
 
+  async function persistOpenUrlPermission(granted: boolean): Promise<boolean> {
+    const response = await fetch(
+      `${API_BASE_URL}/api/preferences/permissions/open_url`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ granted }),
+      },
+    );
+
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as
+        | { detail?: string }
+        | null;
+      throw new Error(
+        errorPayload?.detail ?? `Runtime returned ${response.status}`,
+      );
+    }
+
+    const data: PermissionResponse = (await response.json()) as PermissionResponse;
+    setHasOpenUrlPermission(data.granted);
+    return data.granted;
+  }
+
+  async function refreshWorkspaceSettings(): Promise<void> {
+    const [openAppResponse, openUrlResponse, installerStatus] = await Promise.all([
+      fetch(`${API_BASE_URL}/api/preferences/permissions/open_app`),
+      fetch(`${API_BASE_URL}/api/preferences/permissions/open_url`),
+      installerApi.getInstallerStatus(),
+    ]);
+
+    if (!openAppResponse.ok || !openUrlResponse.ok) {
+      throw new Error("Runtime returned an unexpected settings response");
+    }
+
+    const [openAppData, openUrlData] = (await Promise.all([
+      openAppResponse.json(),
+      openUrlResponse.json(),
+    ])) as [PermissionResponse, PermissionResponse];
+
+    setHasOpenAppPermission(openAppData.granted);
+    setHasOpenUrlPermission(openUrlData.granted);
+    setSelectedModel(installerStatus.ai.model);
+    setInstallerCompleted(installerStatus.completed);
+  }
+
+  async function handleResetChatHistory(): Promise<void> {
+    clearCompanionSession();
+    setMessages(starterMessages);
+    setCompanionState("idle");
+    draftRef.current = "";
+    setDraft("");
+    setSettingsNotice("Recent conversation history was cleared on this device.");
+  }
+
+  async function handleResetPermissions(): Promise<void> {
+    try {
+      await Promise.all([
+        persistOpenAppPermission(false),
+        persistOpenUrlPermission(false),
+      ]);
+      setSettingsNotice("App and browser permissions were reset.");
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown permission reset error";
+      setSettingsNotice(`I could not reset permissions: ${detail}`);
+    }
+  }
+
+  async function handleRepairOpenClaw(): Promise<void> {
+    try {
+      setIsRepairingOpenClaw(true);
+      setSettingsNotice("Refreshing the local OpenClaw installation.");
+      await installerApi.installOpenClaw();
+      await installerApi.startAndConnect();
+      await refreshWorkspaceSettings();
+      appendCompanionMessage(
+        "I refreshed OpenClaw and reconnected the local runtime.",
+        true,
+      );
+      setSettingsNotice("OpenClaw was refreshed and reconnected.");
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown repair error";
+      appendCompanionMessage(
+        `I could not repair OpenClaw yet: ${detail}`,
+        false,
+      );
+      setSettingsNotice(`OpenClaw still needs attention: ${detail}`);
+    } finally {
+      setIsRepairingOpenClaw(false);
+    }
+  }
+
   async function sendMessageToRuntime(userText: string): Promise<void> {
     try {
       const response = await fetch(`${API_BASE_URL}/api/chat`, {
@@ -227,21 +404,20 @@ export function CompanionWorkspace() {
         throw new Error(`Runtime returned ${response.status}`);
       }
 
-      const data: { message: string } = (await response.json()) as {
-        message: string;
-      };
+      const data: CompanionResponse =
+        (await response.json()) as CompanionResponse;
 
       setMessages((currentMessages) => [
         ...currentMessages,
         {
           id: nextMessageId(),
           sender: "companion",
-          text: data.message,
+          text: data.assistant_response,
         },
       ]);
       companionEventBus.emit("responseReceived", {
-        message: data.message,
-        ok: true,
+        message: data.assistant_response,
+        ok: data.ok,
       });
     } catch (error) {
       const detail =
@@ -379,6 +555,117 @@ export function CompanionWorkspace() {
     }
   }
 
+  async function runBrowserHelper(requestText: string): Promise<void> {
+    if (isSending || isLoadingOpenUrlPermission) {
+      return;
+    }
+
+    if (!hasOpenUrlPermission) {
+      const confirmed = window.confirm(
+        "Allow Companion OS to open links and searches in your default browser?",
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        await persistOpenUrlPermission(true);
+      } catch (error) {
+        const detail =
+          error instanceof Error ? error.message : "Unknown permission error";
+        const permissionMessage = `I could not save browser access: ${detail}`;
+
+        setMessages((currentMessages) => [
+          ...currentMessages,
+          {
+            id: nextMessageId(),
+            sender: "companion",
+            text: permissionMessage,
+          },
+        ]);
+        companionEventBus.emit("responseReceived", {
+          message: permissionMessage,
+          ok: false,
+        });
+        return;
+      }
+    }
+
+    setIsSending(true);
+    isSendingRef.current = true;
+
+    setMessages((currentMessages) => [
+      ...currentMessages,
+      {
+        id: nextMessageId(),
+        sender: "user",
+        text: requestText,
+      },
+    ]);
+    companionEventBus.emit("userMessageSent", { message: requestText });
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/skills/browser-helper`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ request: requestText }),
+      });
+
+      if (!response.ok) {
+        const errorPayload = (await response.json().catch(() => null)) as
+          | { detail?: string }
+          | null;
+
+        if (response.status === 403) {
+          setHasOpenUrlPermission(false);
+        }
+
+        throw new Error(
+          errorPayload?.detail ?? `Runtime returned ${response.status}`,
+        );
+      }
+
+      const data: BrowserHelperResponse =
+        (await response.json()) as BrowserHelperResponse;
+
+      setMessages((currentMessages) => [
+        ...currentMessages,
+        {
+          id: nextMessageId(),
+          sender: "companion",
+          text: data.message,
+        },
+      ]);
+      companionEventBus.emit("responseReceived", {
+        message: data.message,
+        ok: data.ok,
+      });
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown browser error";
+      const fallbackMessage = `I could not use the browser helper: ${detail}`;
+
+      setMessages((currentMessages) => [
+        ...currentMessages,
+        {
+          id: nextMessageId(),
+          sender: "companion",
+          text: fallbackMessage,
+        },
+      ]);
+      companionEventBus.emit("responseReceived", {
+        message: fallbackMessage,
+        ok: false,
+      });
+    } finally {
+      setIsSending(false);
+      isSendingRef.current = false;
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -419,7 +706,8 @@ export function CompanionWorkspace() {
           <p>
             The desktop shell now follows a simple state machine: idle when the
             room is quiet, listening while you type, thinking while the runtime
-            works, and talking when a reply comes back.
+            works, talking when a reply comes back, and briefly shifting into
+            error when the local model needs attention.
           </p>
         </div>
         <CompanionAvatar state={companionState} />
@@ -431,10 +719,96 @@ export function CompanionWorkspace() {
             <span className="eyebrow">Console</span>
             <h2>Local companion chat</h2>
           </div>
-          <div className={`status-pill status-pill--${companionState}`}>
-            {companionState}
+          <div className="chat-panel__header-actions">
+            <button
+              className="settings-toggle-button"
+              type="button"
+              onClick={() => {
+                setIsSettingsOpen((currentValue) => !currentValue);
+              }}
+            >
+              {isSettingsOpen ? "Close settings" : "Settings"}
+            </button>
+            <div className={`status-pill status-pill--${companionState}`}>
+              {companionState}
+            </div>
           </div>
         </div>
+
+        {isSettingsOpen ? (
+          <section className="settings-panel" aria-label="Companion settings">
+            <div className="settings-panel__header">
+              <div>
+                <span className="eyebrow">Settings</span>
+                <h3>Continuity and repair</h3>
+              </div>
+              <span
+                className={`settings-health settings-health--${
+                  installerCompleted ? "ready" : "needs-attention"
+                }`}
+              >
+                {installerCompleted ? "OpenClaw ready" : "OpenClaw needs attention"}
+              </span>
+            </div>
+
+            <div className="settings-panel__grid">
+              <article className="settings-card">
+                <span className="settings-card__label">Selected model</span>
+                <strong>{selectedModel}</strong>
+                <p>Core replies stay local-first with your saved model choice.</p>
+              </article>
+
+              <article className="settings-card">
+                <span className="settings-card__label">Permissions</span>
+                <p>
+                  App launches:{" "}
+                  <strong>{hasOpenAppPermission ? "Allowed" : "Not allowed"}</strong>
+                </p>
+                <p>
+                  Browser access:{" "}
+                  <strong>{hasOpenUrlPermission ? "Allowed" : "Not allowed"}</strong>
+                </p>
+              </article>
+            </div>
+
+            <div className="settings-actions">
+              <button
+                className="settings-action-button"
+                type="button"
+                onClick={() => {
+                  void handleResetChatHistory();
+                }}
+              >
+                Reset chat history
+              </button>
+              <button
+                className="settings-action-button"
+                type="button"
+                onClick={() => {
+                  void handleResetPermissions();
+                }}
+              >
+                Reset permissions
+              </button>
+              <button
+                className="settings-action-button settings-action-button--primary"
+                disabled={isRepairingOpenClaw}
+                type="button"
+                onClick={() => {
+                  void handleRepairOpenClaw();
+                }}
+              >
+                {isRepairingOpenClaw ? "Repairing OpenClaw..." : "Repair OpenClaw"}
+              </button>
+            </div>
+
+            {settingsNotice ? (
+              <p className="settings-notice" role="status">
+                {settingsNotice}
+              </p>
+            ) : null}
+          </section>
+        ) : null}
 
         <div className="message-list" role="log" aria-live="polite">
           {messages.map((message) => (
@@ -460,6 +834,16 @@ export function CompanionWorkspace() {
             }}
           >
             Open Spotify
+          </button>
+          <button
+            className="quick-action-button"
+            disabled={isSending || isLoadingOpenUrlPermission}
+            type="button"
+            onClick={() => {
+              void runBrowserHelper("search for Companion OS local setup");
+            }}
+          >
+            Search Companion OS
           </button>
         </div>
 

@@ -1,4 +1,9 @@
-export type CompanionState = "idle" | "listening" | "thinking" | "talking";
+export type CompanionState =
+  | "idle"
+  | "listening"
+  | "thinking"
+  | "talking"
+  | "error";
 
 type CompanionAvatarProps = {
   state: CompanionState;

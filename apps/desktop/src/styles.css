@@ -192,6 +192,16 @@ textarea {
   color: #3a1100;
 }
 
+.installer-step__badge--failed {
+  background: linear-gradient(135deg, #ffb5a0, #ffd3c6);
+  color: #431405;
+}
+
+.installer-step__badge--needs_action {
+  background: linear-gradient(135deg, #ffd08d, #fff0bf);
+  color: #3e2707;
+}
+
 .installer-step--active {
   border-color: rgba(132, 236, 214, 0.3);
 }
@@ -202,6 +212,22 @@ textarea {
 
 .installer-step--error {
   border-color: rgba(255, 193, 173, 0.34);
+}
+
+.installer-step--failed {
+  border-color: rgba(255, 181, 160, 0.38);
+}
+
+.installer-step--needs_action {
+  border-color: rgba(255, 208, 141, 0.42);
+}
+
+.installer-step__message {
+  color: rgba(232, 241, 252, 0.9);
+}
+
+.installer-step__error {
+  color: #ffd3c6;
 }
 
 .installer-sidebar {
@@ -215,6 +241,48 @@ textarea {
   display: grid;
   gap: 8px;
   color: #f3f8ff;
+}
+
+.installer-dependency-list {
+  margin-top: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.installer-dependency {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(11, 24, 41, 0.88);
+  border: 1px solid rgba(153, 182, 220, 0.12);
+}
+
+.installer-dependency__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.installer-dependency p {
+  margin: 10px 0 0;
+  color: rgba(225, 236, 250, 0.78);
+  line-height: 1.5;
+}
+
+.installer-dependency__badge {
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+
+.installer-dependency__badge--ready {
+  background: linear-gradient(135deg, #81f0d6, #91b2ff);
+  color: #07111f;
+}
+
+.installer-dependency__badge--missing {
+  background: linear-gradient(135deg, #ffd08d, #fff0bf);
+  color: #3e2707;
 }
 
 .installer-label {
@@ -249,6 +317,32 @@ textarea {
 .installer-primary-button:disabled {
   opacity: 0.72;
   cursor: wait;
+}
+
+.installer-secondary-button {
+  margin-top: 18px;
+  width: 100%;
+  border-radius: 999px;
+  border: 1px solid rgba(129, 240, 214, 0.24);
+  padding: 14px 18px;
+  background: rgba(9, 21, 38, 0.92);
+  color: #e2f8f3;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.installer-secondary-button:disabled {
+  opacity: 0.72;
+  cursor: wait;
+}
+
+.installer-recovery-list {
+  margin: 16px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 10px;
+  color: rgba(232, 241, 252, 0.88);
+  line-height: 1.5;
 }
 
 .stage-panel {
@@ -336,6 +430,11 @@ textarea {
   filter: saturate(1.15);
 }
 
+.avatar-shell--error {
+  transform: translateY(-3px) scale(1);
+  filter: saturate(0.95) hue-rotate(18deg);
+}
+
 .avatar-aura {
   position: absolute;
   inset: 10%;
@@ -367,6 +466,13 @@ textarea {
 
 .avatar-shell--talking .avatar-aura {
   animation-duration: 1.4s;
+}
+
+.avatar-shell--error .avatar-aura {
+  background:
+    radial-gradient(circle, rgba(255, 152, 118, 0.46), rgba(92, 42, 30, 0.12) 56%, transparent 72%),
+    radial-gradient(circle at 65% 35%, rgba(255, 211, 167, 0.24), transparent 28%);
+  animation-duration: 1.8s;
 }
 
 .avatar-body {
@@ -434,6 +540,12 @@ textarea {
   transform: translateY(-2px) scale(1.08);
 }
 
+.avatar-eye--error {
+  width: 20px;
+  height: 20px;
+  transform: translateY(2px);
+}
+
 .avatar-mouth {
   position: absolute;
   left: 50%;
@@ -476,6 +588,13 @@ textarea {
   border-radius: 40% 40% 60% 60%;
 }
 
+.avatar-mouth--error {
+  width: 38px;
+  height: 18px;
+  bottom: -30px;
+  border-radius: 60% 60% 42% 42%;
+}
+
 .avatar-status {
   position: absolute;
   left: 50%;
@@ -516,9 +635,24 @@ textarea {
   gap: 16px;
 }
 
+.chat-panel__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .chat-panel__header h2 {
   margin-top: 4px;
   font-size: 1.6rem;
+}
+
+.settings-toggle-button {
+  border: 1px solid rgba(166, 191, 230, 0.18);
+  border-radius: 999px;
+  padding: 9px 14px;
+  background: rgba(9, 21, 38, 0.9);
+  color: #ecf4ff;
+  cursor: pointer;
 }
 
 .status-pill {
@@ -547,6 +681,110 @@ textarea {
 .status-pill--talking {
   color: #0d1f27;
   background: linear-gradient(135deg, #81f0d6, #91b2ff);
+}
+
+.status-pill--error {
+  color: #431405;
+  background: linear-gradient(135deg, #ffb5a0, #ffd3c6);
+}
+
+.settings-panel {
+  padding: 18px 20px;
+  border-radius: 24px;
+  background: rgba(9, 20, 36, 0.86);
+  border: 1px solid rgba(158, 189, 223, 0.12);
+  display: grid;
+  gap: 18px;
+}
+
+.settings-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.settings-panel__header h3 {
+  margin: 4px 0 0;
+  font-family: "Bahnschrift", "Segoe UI Variable Display", sans-serif;
+  font-size: 1.2rem;
+}
+
+.settings-health {
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 0.84rem;
+}
+
+.settings-health--ready {
+  background: linear-gradient(135deg, #81f0d6, #91b2ff);
+  color: #07111f;
+}
+
+.settings-health--needs-attention {
+  background: linear-gradient(135deg, #ffd08d, #fff0bf);
+  color: #3e2707;
+}
+
+.settings-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-card {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(11, 24, 41, 0.88);
+  border: 1px solid rgba(153, 182, 220, 0.12);
+}
+
+.settings-card__label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 0.8rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(180, 206, 239, 0.72);
+}
+
+.settings-card p {
+  margin: 10px 0 0;
+  color: rgba(225, 236, 250, 0.76);
+  line-height: 1.5;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.settings-action-button {
+  border: 1px solid rgba(166, 191, 230, 0.18);
+  border-radius: 999px;
+  padding: 11px 16px;
+  background: rgba(9, 21, 38, 0.92);
+  color: #ecf4ff;
+  cursor: pointer;
+}
+
+.settings-action-button--primary {
+  border: 0;
+  color: #07111f;
+  background: linear-gradient(135deg, #81f0d6, #a1b8ff);
+  font-weight: 700;
+}
+
+.settings-action-button:disabled {
+  opacity: 0.72;
+  cursor: wait;
+}
+
+.settings-notice {
+  margin: 0;
+  color: rgba(225, 236, 250, 0.82);
+  line-height: 1.5;
 }
 
 .message-list {
@@ -740,5 +978,14 @@ textarea {
 
   .chat-panel__header {
     flex-direction: column;
+  }
+
+  .chat-panel__header-actions,
+  .settings-panel__header {
+    width: 100%;
+  }
+
+  .settings-panel__grid {
+    grid-template-columns: 1fr;
   }
 }

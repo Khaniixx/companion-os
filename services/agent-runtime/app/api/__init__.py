@@ -12,17 +12,19 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, StringConstraints
 
+from app.core.command_router import route_user_message
 from app.installer import (
-    SUPPORTED_LOCAL_MODELS,
     check_environment,
     configure_ai,
     get_installer_status,
+    get_supported_models,
     install_openclaw,
     prepare_prerequisites,
     start_and_connect,
 )
 from app.preferences import get_permission, set_permission
 from app.skills.app_launcher import launch_app_skill
+from app.skills.browser_helper import run_browser_helper
 
 router = APIRouter()
 
@@ -36,9 +38,13 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    """Echo response returned to the desktop shell."""
+    """Structured routed response returned to the desktop shell."""
 
-    message: str
+    ok: bool
+    route: str
+    user_message: str
+    assistant_response: str
+    action: dict[str, object] | None = None
 
 
 class OpenAppRequest(BaseModel):
@@ -54,6 +60,24 @@ class OpenAppResponse(BaseModel):
 
     ok: bool
     app: str
+    message: str
+
+
+class BrowserHelperRequest(BaseModel):
+    """Natural-language browser-helper request payload."""
+
+    request: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        ..., min_length=1
+    )
+
+
+class BrowserHelperResponse(BaseModel):
+    """Structured response returned by the browser-helper skill."""
+
+    ok: bool
+    action: str
+    request: str
+    url: str
     message: str
 
 
@@ -73,10 +97,20 @@ class PermissionUpdateRequest(BaseModel):
 class InstallerStatusResponse(BaseModel):
     """Persisted installer state used to drive the desktop wizard."""
 
+    current_step: str
+    completed: bool
     environment: dict[str, object]
+    steps: dict[str, dict[str, object]]
     openclaw: dict[str, object]
-    ai: dict[str, str]
-    connection: dict[str, bool]
+    ai: dict[str, object]
+    connection: dict[str, object]
+
+
+class InstallerEnvironmentResponse(BaseModel):
+    """Result of the environment check step."""
+
+    environment: dict[str, object]
+    step: dict[str, object]
 
 
 class PreparePrerequisitesResponse(BaseModel):
@@ -87,6 +121,7 @@ class PreparePrerequisitesResponse(BaseModel):
     remaining: list[str]
     message: str
     environment: dict[str, object]
+    step: dict[str, object]
 
 
 class InstallOpenClawResponse(BaseModel):
@@ -94,6 +129,7 @@ class InstallOpenClawResponse(BaseModel):
 
     install_path: str
     message: str
+    step: dict[str, object]
 
 
 class ConfigureAIRequest(BaseModel):
@@ -110,6 +146,7 @@ class ConfigureAIResponse(BaseModel):
     provider: str
     model: str
     message: str
+    step: dict[str, object]
 
 
 class StartConnectResponse(BaseModel):
@@ -117,6 +154,7 @@ class StartConnectResponse(BaseModel):
 
     connected: bool
     message: str
+    step: dict[str, object]
 
 
 @router.get("/health")
@@ -130,9 +168,16 @@ async def health_check() -> dict[str, str]:
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
-    """Echo the user's message for initial desktop integration."""
+    """Route a message into MVP chat or a first-party action skill."""
 
-    return ChatResponse(message=f"Echo: {request.message}")
+    result = route_user_message(request.message)
+    return ChatResponse(
+        ok=result.ok,
+        route=result.route,
+        user_message=result.user_message,
+        assistant_response=result.assistant_response,
+        action=result.action,
+    )
 
 
 @router.get("/installer/status", response_model=InstallerStatusResponse)
@@ -144,12 +189,12 @@ async def installer_status() -> InstallerStatusResponse:
 
 @router.post(
     "/installer/environment-check",
-    response_model=dict[str, object],
+    response_model=InstallerEnvironmentResponse,
 )
-async def installer_environment_check() -> dict[str, object]:
+async def installer_environment_check() -> InstallerEnvironmentResponse:
     """Detect environment prerequisites for the local desktop shell."""
 
-    return dict(check_environment())
+    return InstallerEnvironmentResponse(**check_environment())
 
 
 @router.post(
@@ -166,14 +211,17 @@ async def installer_prepare_prerequisites() -> PreparePrerequisitesResponse:
 async def installer_install_openclaw() -> InstallOpenClawResponse:
     """Prepare a local OpenClaw installation directory."""
 
-    return InstallOpenClawResponse(**install_openclaw())
+    try:
+        return InstallOpenClawResponse(**install_openclaw())
+    except RuntimeError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.get("/installer/models", response_model=list[str])
 async def installer_models() -> list[str]:
     """Return supported default local model choices."""
 
-    return list(SUPPORTED_LOCAL_MODELS)
+    return get_supported_models()
 
 
 @router.post("/installer/configure-ai", response_model=ConfigureAIResponse)
@@ -220,6 +268,30 @@ async def update_open_app_permission(
     return PermissionResponse(permission="open_app", granted=granted)
 
 
+@router.get(
+    "/preferences/permissions/open_url",
+    response_model=PermissionResponse,
+)
+async def get_open_url_permission() -> PermissionResponse:
+    """Return the persisted permission state for browser access."""
+
+    granted = get_permission("open_url")
+    return PermissionResponse(permission="open_url", granted=granted)
+
+
+@router.put(
+    "/preferences/permissions/open_url",
+    response_model=PermissionResponse,
+)
+async def update_open_url_permission(
+    request: PermissionUpdateRequest,
+) -> PermissionResponse:
+    """Persist the permission state for browser access."""
+
+    granted = set_permission("open_url", request.granted)
+    return PermissionResponse(permission="open_url", granted=granted)
+
+
 @router.post("/skills/open-app", response_model=OpenAppResponse)
 async def open_app(request: OpenAppRequest) -> OpenAppResponse:
     """Launch a supported desktop app after frontend confirmation."""
@@ -238,3 +310,23 @@ async def open_app(request: OpenAppRequest) -> OpenAppResponse:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return OpenAppResponse(**result)
+
+
+@router.post("/skills/browser-helper", response_model=BrowserHelperResponse)
+async def browser_helper(request: BrowserHelperRequest) -> BrowserHelperResponse:
+    """Open a URL or search query in the default browser."""
+
+    if not get_permission("open_url"):
+        raise HTTPException(
+            status_code=403,
+            detail="open_url permission has not been granted",
+        )
+
+    try:
+        result = run_browser_helper(request.request)
+    except RuntimeError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return BrowserHelperResponse(**result)

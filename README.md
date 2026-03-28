@@ -85,6 +85,42 @@ The desktop onboarding flow should remain consistent across product and implemen
 
 Core features should work without requiring API keys during this default path.
 
+The installer is expected to be resumable and product-safe:
+
+- Save installer progress locally so a restart resumes from the current step instead of starting over.
+- Detect Node.js, Rust, the Windows C++ / MSVC toolchain, and the local model runtime dependencies required for OpenClaw.
+- Attempt silent setup where it is reliable, and switch to guided repair steps with exact next actions when manual intervention is needed.
+- Show clear per-step states for pending, active, complete, failed, and needs action.
+- Reopen directly into the companion when setup is already complete.
+
+## MVP Local Model Flow
+
+The MVP chat path is local-first:
+
+- Companion replies are generated through a backend provider abstraction instead of the temporary echo route.
+- The default provider path is a free local open-source model running through Ollama.
+- The recommended first-run model is `llama3.1:8b-instruct`, and it is selected automatically unless the user chooses a different supported local model during setup.
+- The selected model is stored in backend preferences so installer setup, runtime chat, and future restarts stay aligned.
+- If the local model runtime is still loading or the model has not been pulled yet, the companion returns a graceful fallback reply instead of a raw backend error.
+
+## MVP Action Skills
+
+The first MVP action skills use explicit permissions and companion-style confirmations:
+
+- `open_app` launches supported desktop apps such as Spotify after user confirmation.
+- `browser-helper` can handle `search for <query>` and `open <url>` by opening the default browser after the user grants browser access.
+
+## MVP Command Routing
+
+Incoming companion messages use a minimal router rather than a planner:
+
+- `open Spotify` and `open Discord` route to `app-launcher`
+- `search for <query>` routes to `browser-helper`
+- browser-like `open <url>` messages can route to `browser-helper`
+- everything else falls back to normal companion chat
+
+The router returns a structured result with the chosen route, the user message, the companion reply, and optional action metadata so the desktop shell can keep one seamless conversation.
+
 ### Developing Skills
 
 Skills extend the agent’s abilities by wrapping functionality behind a stable interface.  Each skill lives in its own folder under `skills/` and contains a `SKILL.md` manifest specifying metadata (name, description, allowed actions) and any code required to implement it.  Companion OS is compatible with OpenClaw‑style skills, but all community skills must declare permissions and pass a security review before distribution.

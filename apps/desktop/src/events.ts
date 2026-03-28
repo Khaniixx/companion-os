@@ -9,7 +9,8 @@
  *
  * `responseReceived`
  * Fired when the frontend receives a reply to display in the transcript,
- * including fallback error text rendered as a companion message.
+ * including fallback error text rendered as a companion message that can
+ * drive the companion into its `error` state.
  *
  * `windowFocusChanged`
  * Fired when the desktop window gains or loses focus.
