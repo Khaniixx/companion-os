@@ -9,9 +9,15 @@ from app.chat.service import generate_companion_reply
 from app.preferences import get_permission
 from app.skills.app_launcher import launch_app_skill
 from app.skills.browser_helper import run_browser_helper
+from app.skills.micro_utilities import run_micro_utility
 
 
-RouteName = Literal["companion-chat", "app-launcher", "browser-helper"]
+RouteName = Literal[
+    "companion-chat",
+    "app-launcher",
+    "browser-helper",
+    "micro-utilities",
+]
 
 
 @dataclass(frozen=True)
@@ -41,6 +47,46 @@ def _looks_like_browser_target(target: str) -> bool:
     return "." in normalized_target
 
 
+def _looks_like_micro_utility_request(message: str) -> bool:
+    lowered_message = message.strip().lower()
+    utility_prefixes = (
+        "set a ",
+        "set an ",
+        "set timer",
+        "start timer",
+        "start a ",
+        "alarm ",
+        "set alarm",
+        "remind me to ",
+        "add todo ",
+        "add to-do ",
+        "create todo ",
+        "show timers",
+        "show alarms",
+        "show reminders",
+        "show my todo",
+        "show todo",
+        "show to-do",
+        "show todos",
+        "show to-dos",
+        "list timers",
+        "list alarms",
+        "list reminders",
+        "list todos",
+        "list to-dos",
+        "save clipboard",
+        "capture clipboard",
+        "remember clipboard",
+        "show clipboard",
+        "show shortcuts",
+        "list shortcuts",
+        "run shortcut ",
+        "launch shortcut ",
+        "open shortcut ",
+    )
+    return lowered_message.startswith(utility_prefixes)
+
+
 def choose_route(message: str) -> RouteName:
     """Choose an MVP route for the incoming user message."""
 
@@ -56,6 +102,9 @@ def choose_route(message: str) -> RouteName:
         target = normalized_message[5:].strip()
         if _looks_like_browser_target(target):
             return "browser-helper"
+
+    if _looks_like_micro_utility_request(normalized_message):
+        return "micro-utilities"
 
     return "companion-chat"
 
@@ -123,6 +172,19 @@ def route_user_message(message: str) -> RouterResult:
             action={
                 "type": result["action"],
                 "url": result["url"],
+            },
+        )
+
+    if route == "micro-utilities":
+        result = run_micro_utility(normalized_message)
+        return RouterResult(
+            ok=result["ok"],
+            route="micro-utilities",
+            user_message=normalized_message,
+            assistant_response=result["message"],
+            action={
+                "type": result["action"],
+                **result["metadata"],
             },
         )
 

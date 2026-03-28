@@ -1,9 +1,4 @@
-export type CompanionState =
-  | "idle"
-  | "listening"
-  | "thinking"
-  | "talking"
-  | "error";
+import type { CompanionState } from "../companionStateMachine";
 
 type CompanionAvatarProps = {
   state: CompanionState;

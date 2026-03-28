@@ -4,7 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CompanionWorkspace } from "./CompanionWorkspace";
 
-function createInstallerStatus(overrides?: Partial<{ completed: boolean; model: string }>) {
+function createInstallerStatus(
+  overrides?: Partial<{ completed: boolean; model: string }>,
+) {
   return {
     current_step: "complete",
     completed: overrides?.completed ?? true,
@@ -92,36 +94,213 @@ function createInstallerStatus(overrides?: Partial<{ completed: boolean; model: 
 }
 
 function createFetchMock() {
+  let openAppGranted = false;
+  let openUrlGranted = false;
+  let nextUtilityId = 3;
+  let nextStreamEventId = 20;
+  const utilityState = {
+    timers: [] as Array<{
+      id: number;
+      kind: string;
+      label: string;
+      due_at: string | null;
+      completed: boolean;
+      created_at: string;
+    }>,
+    reminders: [] as Array<{
+      id: number;
+      kind: string;
+      label: string;
+      due_at: string | null;
+      completed: boolean;
+      created_at: string;
+    }>,
+    todos: [
+      {
+        id: 1,
+        kind: "todo",
+        label: "Keep setup notes tidy",
+        due_at: null,
+        completed: false,
+        created_at: "2026-03-29T00:00:00+00:00",
+      },
+    ],
+    clipboard_history: [] as Array<{
+      id: number;
+      text: string;
+      created_at: string;
+    }>,
+    shortcuts: [
+      {
+        id: "spotify",
+        label: "Spotify",
+        kind: "app",
+        target: "spotify",
+      },
+      {
+        id: "discord",
+        label: "Discord",
+        kind: "app",
+        target: "discord",
+      },
+      {
+        id: "local-setup",
+        label: "Local Setup Search",
+        kind: "browser",
+        target: "search for Companion OS local setup",
+      },
+    ],
+  };
+  const streamState = {
+    settings: {
+      enabled: false,
+      provider: "twitch",
+      overlay_enabled: false,
+      click_through_enabled: false,
+      twitch_channel_name: "",
+      twitch_webhook_secret: "",
+      youtube_live_chat_id: "",
+      reaction_preferences: {
+        new_subscriber: true,
+        donation: true,
+        new_member: true,
+        super_chat: true,
+      },
+    },
+    recent_events: [] as Array<{
+      id: number;
+      provider: string;
+      type: string;
+      actor_name: string;
+      amount_display: string | null;
+      message: string | null;
+      bubble_text: string;
+      created_at: string;
+      should_react: boolean;
+    }>,
+  };
+
   return vi
     .spyOn(window, "fetch")
     .mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
 
       if (url.endsWith("/api/preferences/permissions/open_app")) {
-        const granted =
-          init?.method === "PUT"
-            ? Boolean(JSON.parse(String(init.body)).granted)
-            : false;
+        if (init?.method === "PUT") {
+          openAppGranted = Boolean(JSON.parse(String(init.body)).granted);
+        }
 
         return Promise.resolve(
           new Response(
-            JSON.stringify({ permission: "open_app", granted }),
+            JSON.stringify({ permission: "open_app", granted: openAppGranted }),
             { status: 200 },
           ),
         );
       }
 
       if (url.endsWith("/api/preferences/permissions/open_url")) {
-        const granted =
-          init?.method === "PUT"
-            ? Boolean(JSON.parse(String(init.body)).granted)
-            : false;
+        if (init?.method === "PUT") {
+          openUrlGranted = Boolean(JSON.parse(String(init.body)).granted);
+        }
 
         return Promise.resolve(
           new Response(
-            JSON.stringify({ permission: "open_url", granted }),
+            JSON.stringify({ permission: "open_url", granted: openUrlGranted }),
             { status: 200 },
           ),
+        );
+      }
+
+      if (url.endsWith("/api/utilities/state")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(utilityState), { status: 200 }),
+        );
+      }
+
+      if (url.endsWith("/api/utilities/clipboard/capture")) {
+        const body = JSON.parse(String(init?.body)) as { text: string };
+        const entry = {
+          id: nextUtilityId,
+          text: body.text,
+          created_at: "2026-03-29T02:00:00+00:00",
+        };
+        nextUtilityId += 1;
+        utilityState.clipboard_history.unshift(entry);
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ...entry,
+              message: "I saved that clipboard text into your local history.",
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+
+      if (url.endsWith("/api/stream/state")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(streamState), { status: 200 }),
+        );
+      }
+
+      if (url.endsWith("/api/stream/events")) {
+        if (init?.method === "DELETE") {
+          const deleted = streamState.recent_events.length;
+          streamState.recent_events = [];
+          return Promise.resolve(
+            new Response(JSON.stringify({ deleted }), { status: 200 }),
+          );
+        }
+
+        return Promise.resolve(
+          new Response(JSON.stringify(streamState.recent_events), { status: 200 }),
+        );
+      }
+
+      if (url.endsWith("/api/stream/settings")) {
+        const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+        streamState.settings = {
+          ...streamState.settings,
+          ...body,
+          reaction_preferences: {
+            ...streamState.settings.reaction_preferences,
+            ...((body.reaction_preferences as Record<string, boolean> | undefined) ??
+              {}),
+          },
+        };
+        if (!streamState.settings.overlay_enabled) {
+          streamState.settings.click_through_enabled = false;
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify(streamState.settings), { status: 200 }),
+        );
+      }
+
+      if (url.endsWith("/api/stream/events/preview")) {
+        const body = JSON.parse(String(init?.body)) as { type: string };
+        const event = {
+          id: nextStreamEventId,
+          provider: body.type === "super_chat" ? "youtube" : streamState.settings.provider,
+          type: body.type,
+          actor_name: body.type === "donation" ? "Mika" : "Ari",
+          amount_display:
+            body.type === "donation" || body.type === "super_chat"
+              ? "$5.00"
+              : null,
+          message: null,
+          bubble_text:
+            body.type === "donation"
+              ? "Mika just sent $5.00."
+              : body.type === "super_chat"
+                ? "Ari sent a Super Chat for $5.00."
+                : "Ari just subscribed on Twitch.",
+          created_at: "2026-03-29T02:30:00+00:00",
+          should_react: true,
+        };
+        nextStreamEventId += 1;
+        streamState.recent_events.unshift(event);
+        return Promise.resolve(
+          new Response(JSON.stringify(event), { status: 200 }),
         );
       }
 
@@ -142,7 +321,8 @@ function createFetchMock() {
                 title: "Install OpenClaw",
                 description: "",
                 status: "complete",
-                message: "OpenClaw is installed locally and ready for model configuration.",
+                message:
+                  "OpenClaw is installed locally and ready for model configuration.",
                 error: null,
                 recovery_instructions: [],
                 can_retry: false,
@@ -165,7 +345,8 @@ function createFetchMock() {
                 title: "Start & Connect",
                 description: "",
                 status: "complete",
-                message: "The companion is connected and ready in the desktop shell.",
+                message:
+                  "The companion is connected and ready in the desktop shell.",
                 error: null,
                 recovery_instructions: [],
                 can_retry: false,
@@ -177,24 +358,338 @@ function createFetchMock() {
         );
       }
 
-      if (url.endsWith("/api/chat")) {
+      if (url.endsWith("/api/packs")) {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              ok: false,
-              route: "companion-chat",
-              user_message: "hello",
-              assistant_response:
-                "I am almost ready, but my local model llama3.1:8b-instruct is not loaded yet.",
-              action: {
-                type: "chat_reply",
-                provider: "ollama",
-                model: "llama3.1:8b-instruct",
-              },
+              active_pack_id: "sunrise-companion",
+              schema_version: "1.0",
+              packs: [
+                {
+                  id: "sunrise-companion",
+                  name: "Sunrise Pack",
+                  version: "1.0.0",
+                  display_name: "Sunrise",
+                  author_name: "Companion Labs",
+                  license_name: "MIT",
+                  content_rating: {
+                    minimum_age: 13,
+                    maximum_age: null,
+                    tags: ["friendly"],
+                  },
+                  required_capabilities: [
+                    {
+                      id: "overlay.render",
+                      justification: "Show the companion on screen.",
+                    },
+                  ],
+                  optional_capabilities: [],
+                  active: true,
+                  icon_data_url: null,
+                  installed_at: "2026-03-29T00:00:00+00:00",
+                },
+              ],
             }),
             { status: 200 },
           ),
         );
+      }
+
+      if (url.endsWith("/api/marketplace/listings")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              schema_version: "1.0",
+              listings: [
+                {
+                  schema_version: "1.0",
+                  id: "bloom-starter-pack",
+                  kind: "personality_pack",
+                  name: "Bloom Starter Pack",
+                  description: "A calm starter pack for the local companion.",
+                  version: "1.0.0",
+                  publisher: {
+                    id: "companion-labs",
+                    name: "Companion Labs",
+                    website: "https://companion-os.local",
+                    signature_key_id: "curated-marketplace-rs256",
+                  },
+                  license: {
+                    name: "CC-BY-4.0",
+                    spdx_identifier: "CC-BY-4.0",
+                    url: null,
+                  },
+                  required_capabilities: [
+                    {
+                      id: "overlay.render",
+                      justification: "Render the active companion on screen.",
+                    },
+                  ],
+                  optional_capabilities: [],
+                  price: {
+                    is_free: true,
+                    amount: null,
+                    currency: null,
+                    label: "Free",
+                  },
+                  revenue_share: {
+                    creator_percent: 70,
+                    platform_percent: 20,
+                    payment_processor_percent: 10,
+                  },
+                  moderation: {
+                    automated_scans: [
+                      {
+                        id: "malware",
+                        label: "Malware scan",
+                        status: "passed",
+                        summary: "Clean.",
+                      },
+                    ],
+                    manual_review: {
+                      status: "approved",
+                      reviewer: "Marketplace moderation",
+                      reviewed_at: "2026-03-29T09:00:00+10:00",
+                      notes: "Approved.",
+                    },
+                    install_allowed: true,
+                  },
+                  publisher_signature: {
+                    algorithm: "RS256",
+                    key_id: "curated-marketplace-rs256",
+                    public_key: { kty: "RSA", n: "abc", e: "AQAB" },
+                    value: "sig",
+                  },
+                  content_rating: {
+                    minimum_age: 13,
+                    maximum_age: null,
+                    tags: ["friendly"],
+                  },
+                  ip_declaration: {
+                    rights_confirmed: true,
+                    asset_sources: ["Original asset"],
+                    notes: "Rights cleared.",
+                  },
+                  install_supported: true,
+                  core_feature: true,
+                  icon_data_url: null,
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+
+      if (url.endsWith("/api/memory/settings")) {
+        const payload =
+          init?.method === "PUT"
+            ? {
+                long_term_memory_enabled:
+                  JSON.parse(String(init.body)).long_term_memory_enabled ?? true,
+                summary_frequency_messages:
+                  JSON.parse(String(init.body)).summary_frequency_messages ?? 25,
+                cloud_backup_enabled:
+                  JSON.parse(String(init.body)).cloud_backup_enabled ?? false,
+                storage_mode: "local-only",
+              }
+            : {
+                long_term_memory_enabled: true,
+                summary_frequency_messages: 25,
+                cloud_backup_enabled: false,
+                storage_mode: "local-only",
+              };
+
+        return Promise.resolve(
+          new Response(JSON.stringify(payload), { status: 200 }),
+        );
+      }
+
+      if (url.endsWith("/api/memory/summaries")) {
+        if (init?.method === "DELETE") {
+          return Promise.resolve(
+            new Response(JSON.stringify({ deleted: 0 }), { status: 200 }),
+          );
+        }
+
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              summaries: [
+                {
+                  id: 1,
+                  title: "Recent: local setup",
+                  summary:
+                    "The user focused on local setup. The companion responded with a calm local reply.",
+                  message_count: 6,
+                  created_at: "2026-03-29T00:00:00+00:00",
+                  updated_at: "2026-03-29T00:00:00+00:00",
+                  source: "local",
+                },
+              ],
+              pending_message_count: 2,
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+
+      if (url.match(/\/api\/memory\/summaries\/\d+$/) && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body)) as {
+          title?: string;
+          summary?: string;
+        };
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: 1,
+              title: body.title ?? "Recent: local setup",
+              summary: body.summary ?? "Edited local summary.",
+              message_count: 6,
+              created_at: "2026-03-29T00:00:00+00:00",
+              updated_at: "2026-03-29T01:00:00+00:00",
+              source: "local",
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+
+      if (url.match(/\/api\/memory\/summaries\/\d+$/) && init?.method === "DELETE") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ deleted: 1 }), { status: 200 }),
+        );
+      }
+
+      if (url.endsWith("/api/chat")) {
+        const body = JSON.parse(String(init?.body)) as { message: string };
+
+        if (body.message === "hello") {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                ok: false,
+                route: "companion-chat",
+                user_message: "hello",
+                assistant_response:
+                  "I am almost ready, but my local model llama3.1:8b-instruct is not loaded yet.",
+                action: {
+                  type: "chat_reply",
+                  provider: "ollama",
+                  model: "llama3.1:8b-instruct",
+                },
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+
+        if (body.message === "set a 5 minute timer") {
+          const timer = {
+            id: nextUtilityId,
+            kind: "timer",
+            label: "5-minute timer",
+            due_at: "2026-03-29T02:05:00+00:00",
+            completed: false,
+            created_at: "2026-03-29T02:00:00+00:00",
+          };
+          nextUtilityId += 1;
+          utilityState.timers.unshift(timer);
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                ok: true,
+                route: "micro-utilities",
+                user_message: body.message,
+                assistant_response:
+                  "I set a 5-minute timer. I will keep it subtle and local.",
+                action: {
+                  type: "created_timer",
+                  utility: timer,
+                },
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+
+        if (body.message === "save clipboard") {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                ok: true,
+                route: "micro-utilities",
+                user_message: body.message,
+                assistant_response:
+                  "I am ready to save the current clipboard text into local history.",
+                action: {
+                  type: "capture_clipboard",
+                  utility: "clipboard",
+                },
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+
+        if (body.message === "show my todo list") {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                ok: true,
+                route: "micro-utilities",
+                user_message: body.message,
+                assistant_response:
+                  "Here is your current to-do list:\n- [open] #1 Keep setup notes tidy",
+                action: {
+                  type: "listed_utilities",
+                  utility: "todos",
+                },
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+
+        if (body.message === "open Spotify") {
+          if (!openAppGranted) {
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({
+                  ok: false,
+                  route: "app-launcher",
+                  user_message: body.message,
+                  assistant_response:
+                    "I can open Spotify once you allow app launches in Companion OS.",
+                  action: {
+                    type: "permission_required",
+                    permission: "open_app",
+                    target: "spotify",
+                  },
+                }),
+                { status: 200 },
+              ),
+            );
+          }
+
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                ok: true,
+                route: "app-launcher",
+                user_message: body.message,
+                assistant_response: "I am opening Spotify for you.",
+                action: {
+                  type: "open_app",
+                  app: "spotify",
+                },
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+
+        return Promise.reject(new Error(`Unexpected chat message: ${body.message}`));
       }
 
       return Promise.reject(new Error(`Unexpected fetch: ${url}`));
@@ -231,7 +726,7 @@ describe("CompanionWorkspace", () => {
   });
 
   it("moves into the error state when the local model is unavailable", async () => {
-    const fetchMock = createFetchMock();
+    createFetchMock();
     const user = userEvent.setup();
 
     render(<CompanionWorkspace />);
@@ -245,7 +740,56 @@ describe("CompanionWorkspace", () => {
     expect(
       screen.getByText(/I am almost ready, but my local model/i),
     ).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("updates the utility surface for timer creation and clipboard capture", async () => {
+    createFetchMock();
+    const clipboardReadText = vi.fn().mockResolvedValue("Copied local snippet");
+    vi.spyOn(window.navigator.clipboard, "readText").mockImplementation(
+      clipboardReadText,
+    );
+    const user = userEvent.setup();
+
+    render(<CompanionWorkspace />);
+
+    await user.click(screen.getByRole("button", { name: "Set 5 minute timer" }));
+    expect(
+      await screen.findByText("I set a 5-minute timer. I will keep it subtle and local."),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("5-minute timer")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Save clipboard" }),
+      ).toBeEnabled();
+    });
+    await user.click(screen.getByRole("button", { name: "Save clipboard" }));
+    await waitFor(() => {
+      expect(clipboardReadText).toHaveBeenCalled();
+    });
+    expect(
+      await screen.findByText("I saved that clipboard text into your local history."),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Copied local snippet")).toBeInTheDocument();
+  });
+
+  it("retries permission-gated app launches through the same chat flow", async () => {
+    createFetchMock();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+
+    render(<CompanionWorkspace />);
+
+    await user.click(screen.getByRole("button", { name: "Open Spotify" }));
+
+    expect(
+      await screen.findByText(
+        "I can open Spotify once you allow app launches in Companion OS.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("I am opening Spotify for you."),
+    ).toBeInTheDocument();
   });
 
   it("shows settings details and supports reset actions", async () => {
@@ -261,7 +805,9 @@ describe("CompanionWorkspace", () => {
 
     await user.click(screen.getByRole("button", { name: "Reset permissions" }));
     await waitFor(() => {
-      expect(screen.getByText("App and browser permissions were reset.")).toBeInTheDocument();
+      expect(
+        screen.getByText("App and browser permissions were reset."),
+      ).toBeInTheDocument();
     });
 
     await user.click(screen.getByRole("button", { name: "Reset chat history" }));
@@ -276,5 +822,33 @@ describe("CompanionWorkspace", () => {
         screen.getByText("I refreshed OpenClaw and reconnected the local runtime."),
       ).toBeInTheDocument();
     });
+  });
+
+  it("saves stream settings and previews a stream reaction bubble", async () => {
+    createFetchMock();
+    const user = userEvent.setup();
+
+    render(<CompanionWorkspace />);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByLabelText("Enable stream integration"));
+    await user.click(
+      screen.getByLabelText("Show a transparent overlay on top of the desktop"),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Save stream setup" }),
+    );
+
+    expect(
+      await screen.findByText("Stream settings were saved for this companion."),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Preview subscriber" }));
+    expect(
+      await screen.findByText("Preview stream reaction sent to the companion."),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Close settings" }));
+    expect(await screen.findByText("Ari just subscribed on Twitch.")).toBeInTheDocument();
   });
 });

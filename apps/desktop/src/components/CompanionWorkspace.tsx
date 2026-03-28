@@ -6,9 +6,30 @@ import {
   persistCompanionSession,
   type CompanionMessage,
 } from "../companionSession";
+import {
+  transitionCompanionState,
+  type CompanionState,
+  type CompanionStateEvent,
+} from "../companionStateMachine";
 import { companionEventBus } from "../eventBus";
 import { installerApi } from "../installerApi";
-import { CompanionAvatar, type CompanionState } from "./CompanionAvatar";
+import { applyOverlayWindowState } from "../overlayController";
+import {
+  microUtilityApi,
+  type MicroUtilityState,
+} from "../microUtilityApi";
+import {
+  streamApi,
+  type StreamEvent,
+  type StreamReactionPreferences,
+  type StreamSettings,
+  type StreamState,
+} from "../streamApi";
+import { CompanionAvatar } from "./CompanionAvatar";
+import { MemoryPrivacySettings } from "./MemoryPrivacySettings";
+import { MicroUtilitiesPanel } from "./MicroUtilitiesPanel";
+import { PersonalityPackSettings } from "./PersonalityPackSettings";
+import { StreamIntegrationSettings } from "./StreamIntegrationSettings";
 
 type CompanionResponse = {
   ok: boolean;
@@ -16,20 +37,6 @@ type CompanionResponse = {
   user_message: string;
   assistant_response: string;
   action?: Record<string, unknown> | null;
-};
-
-type OpenAppResponse = {
-  ok: boolean;
-  app: string;
-  message: string;
-};
-
-type BrowserHelperResponse = {
-  ok: boolean;
-  action: string;
-  request: string;
-  url: string;
-  message: string;
 };
 
 type PermissionResponse = {
@@ -63,6 +70,16 @@ export function CompanionWorkspace() {
     useState(true);
   const [isLoadingOpenUrlPermission, setIsLoadingOpenUrlPermission] =
     useState(true);
+  const [microUtilityState, setMicroUtilityState] =
+    useState<MicroUtilityState | null>(null);
+  const [isLoadingUtilities, setIsLoadingUtilities] = useState(true);
+  const [streamState, setStreamState] = useState<StreamState | null>(null);
+  const [isLoadingStreamState, setIsLoadingStreamState] = useState(true);
+  const [isSavingStreamSettings, setIsSavingStreamSettings] = useState(false);
+  const [streamNotice, setStreamNotice] = useState<string | null>(null);
+  const [activeStreamEvent, setActiveStreamEvent] = useState<StreamEvent | null>(
+    null,
+  );
   const [selectedModel, setSelectedModel] = useState("llama3.1:8b-instruct");
   const [installerCompleted, setInstallerCompleted] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -72,7 +89,9 @@ export function CompanionWorkspace() {
   const draftRef = useRef("");
   const isSendingRef = useRef(false);
   const isWindowFocusedRef = useRef(document.hasFocus());
-  const talkingTimerRef = useRef<number | null>(null);
+  const transientTimerRef = useRef<number | null>(null);
+  const streamBubbleTimerRef = useRef<number | null>(null);
+  const seenStreamEventIdsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     isSendingRef.current = isSending;
@@ -91,10 +110,18 @@ export function CompanionWorkspace() {
 
     async function loadWorkspaceState(): Promise<void> {
       try {
-        const [openAppResponse, openUrlResponse, installerStatus] = await Promise.all([
+        const [
+          openAppResponse,
+          openUrlResponse,
+          installerStatus,
+          utilityState,
+          currentStreamState,
+        ] = await Promise.all([
           fetch(`${API_BASE_URL}/api/preferences/permissions/open_app`),
           fetch(`${API_BASE_URL}/api/preferences/permissions/open_url`),
           installerApi.getInstallerStatus(),
+          microUtilityApi.getState(),
+          streamApi.getState(),
         ]);
 
         if (!openAppResponse.ok || !openUrlResponse.ok) {
@@ -114,6 +141,11 @@ export function CompanionWorkspace() {
         setHasOpenUrlPermission(openUrlData.granted);
         setSelectedModel(installerStatus.ai.model);
         setInstallerCompleted(installerStatus.completed);
+        setMicroUtilityState(utilityState);
+        setStreamState(currentStreamState);
+        seenStreamEventIdsRef.current = new Set(
+          currentStreamState.recent_events.map((event) => event.id),
+        );
       } catch {
         if (!active) {
           return;
@@ -122,10 +154,14 @@ export function CompanionWorkspace() {
         setHasOpenAppPermission(false);
         setHasOpenUrlPermission(false);
         setInstallerCompleted(false);
+        setMicroUtilityState(null);
+        setStreamState(null);
       } finally {
         if (active) {
           setIsLoadingOpenAppPermission(false);
           setIsLoadingOpenUrlPermission(false);
+          setIsLoadingUtilities(false);
+          setIsLoadingStreamState(false);
         }
       }
     }
@@ -138,40 +174,156 @@ export function CompanionWorkspace() {
   }, []);
 
   useEffect(() => {
-    function clearTalkingTimer(): void {
-      if (talkingTimerRef.current !== null) {
-        window.clearTimeout(talkingTimerRef.current);
-        talkingTimerRef.current = null;
-      }
+    if (streamState === null) {
+      return;
     }
 
-    function settleCompanionState(): void {
-      if (!isWindowFocusedRef.current) {
-        setCompanionState("idle");
+    void applyOverlayWindowState(streamState.settings);
+  }, [streamState]);
+
+  useEffect(() => {
+    if (streamState?.settings.click_through_enabled !== true) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
         return;
       }
 
-      setCompanionState(
-        draftRef.current.trim().length > 0 ? "listening" : "idle",
-      );
+      setStreamNotice("Overlay click-through was turned off.");
+      void (async () => {
+        try {
+          const settings = await streamApi.updateSettings({
+            click_through_enabled: false,
+          });
+          setStreamState((currentState) =>
+            currentState === null
+              ? {
+                  settings,
+                  recent_events: [],
+                }
+              : {
+                  ...currentState,
+                  settings,
+                },
+          );
+        } catch {
+          setStreamNotice("I could not turn click-through off yet.");
+        }
+      })();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [streamState?.settings.click_through_enabled]);
+
+  useEffect(() => {
+    if (isLoadingStreamState) {
+      return;
     }
 
-    function startTalkingState(): void {
-      clearTalkingTimer();
-      setCompanionState("talking");
-      talkingTimerRef.current = window.setTimeout(() => {
-        talkingTimerRef.current = null;
-        settleCompanionState();
-      }, 1400);
+    let active = true;
+    const intervalId = window.setInterval(() => {
+      void pollStreamEvents();
+    }, 5000);
+
+    async function warmPoll(): Promise<void> {
+      await pollStreamEvents();
     }
 
-    function startErrorState(): void {
-      clearTalkingTimer();
-      setCompanionState("error");
-      talkingTimerRef.current = window.setTimeout(() => {
-        talkingTimerRef.current = null;
-        settleCompanionState();
-      }, 1800);
+    async function pollStreamEvents(): Promise<void> {
+      try {
+        const events = await streamApi.getEvents();
+        if (!active) {
+          return;
+        }
+
+        setStreamState((currentState) =>
+          currentState === null
+            ? null
+            : {
+                ...currentState,
+                recent_events: events,
+              },
+        );
+
+        for (const event of events) {
+          if (seenStreamEventIdsRef.current.has(event.id)) {
+            continue;
+          }
+
+          seenStreamEventIdsRef.current.add(event.id);
+          if (!event.should_react) {
+            continue;
+          }
+
+          if (streamBubbleTimerRef.current !== null) {
+            window.clearTimeout(streamBubbleTimerRef.current);
+          }
+          setActiveStreamEvent(event);
+          streamBubbleTimerRef.current = window.setTimeout(() => {
+            streamBubbleTimerRef.current = null;
+            setActiveStreamEvent(null);
+          }, 7000);
+          companionEventBus.emit("utilityActionCompleted", {
+            action: "stream_event",
+          });
+          break;
+        }
+      } catch {
+        if (!active) {
+          return;
+        }
+      }
+    }
+
+    void warmPoll();
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      if (streamBubbleTimerRef.current !== null) {
+        window.clearTimeout(streamBubbleTimerRef.current);
+        streamBubbleTimerRef.current = null;
+      }
+    };
+  }, [isLoadingStreamState]);
+
+  useEffect(() => {
+    function clearTransientTimer(): void {
+      if (transientTimerRef.current !== null) {
+        window.clearTimeout(transientTimerRef.current);
+        transientTimerRef.current = null;
+      }
+    }
+
+    function applyTransition(event: CompanionStateEvent): void {
+      const transition = transitionCompanionState(event, {
+        draft: draftRef.current,
+        focused: isWindowFocusedRef.current,
+        isSending: isSendingRef.current,
+      });
+
+      clearTransientTimer();
+      setCompanionState(transition.state);
+
+      if (transition.durationMs !== null) {
+        transientTimerRef.current = window.setTimeout(() => {
+          transientTimerRef.current = null;
+          const settledTransition = transitionCompanionState(
+            { type: "settle" },
+            {
+              draft: draftRef.current,
+              focused: isWindowFocusedRef.current,
+              isSending: isSendingRef.current,
+            },
+          );
+          setCompanionState(settledTransition.state);
+        }, transition.durationMs);
+      }
     }
 
     const unsubscribeDraftChanged = companionEventBus.subscribe(
@@ -183,28 +335,34 @@ export function CompanionWorkspace() {
           return;
         }
 
-        clearTalkingTimer();
-        settleCompanionState();
+        applyTransition({
+          type: "draftChanged",
+          draft: payload.draft,
+        });
       },
     );
 
     const unsubscribeUserMessageSent = companionEventBus.subscribe(
       "userMessageSent",
       () => {
-        clearTalkingTimer();
-        setCompanionState("thinking");
+        applyTransition({ type: "userMessageSent" });
       },
     );
 
     const unsubscribeResponseReceived = companionEventBus.subscribe(
       "responseReceived",
       ({ payload }) => {
-        if (payload.ok) {
-          startTalkingState();
-          return;
-        }
+        applyTransition({
+          type: "responseReceived",
+          ok: payload.ok,
+        });
+      },
+    );
 
-        startErrorState();
+    const unsubscribeUtilityActionCompleted = companionEventBus.subscribe(
+      "utilityActionCompleted",
+      () => {
+        applyTransition({ type: "utilityActionCompleted" });
       },
     );
 
@@ -213,11 +371,14 @@ export function CompanionWorkspace() {
       ({ payload }) => {
         isWindowFocusedRef.current = payload.focused;
 
-        if (isSendingRef.current || talkingTimerRef.current !== null) {
+        if (isSendingRef.current || transientTimerRef.current !== null) {
           return;
         }
 
-        settleCompanionState();
+        applyTransition({
+          type: "windowFocusChanged",
+          focused: payload.focused,
+        });
       },
     );
 
@@ -233,10 +394,11 @@ export function CompanionWorkspace() {
     window.addEventListener("blur", handleWindowBlur);
 
     return () => {
-      clearTalkingTimer();
+      clearTransientTimer();
       unsubscribeDraftChanged();
       unsubscribeUserMessageSent();
       unsubscribeResponseReceived();
+      unsubscribeUtilityActionCompleted();
       unsubscribeWindowFocusChanged();
       window.removeEventListener("focus", handleWindowFocus);
       window.removeEventListener("blur", handleWindowBlur);
@@ -253,24 +415,31 @@ export function CompanionWorkspace() {
     return currentId;
   }
 
-  function appendCompanionMessage(text: string, ok: boolean): void {
+  function appendMessage(sender: "companion" | "user", text: string): void {
     setMessages((currentMessages) => [
       ...currentMessages,
       {
         id: nextMessageId(),
-        sender: "companion",
+        sender,
         text,
       },
     ]);
+  }
+
+  function appendCompanionMessage(text: string, ok: boolean): void {
+    appendMessage("companion", text);
     companionEventBus.emit("responseReceived", {
       message: text,
       ok,
     });
   }
 
-  async function persistOpenAppPermission(granted: boolean): Promise<boolean> {
+  async function persistPermission(
+    permission: "open_app" | "open_url",
+    granted: boolean,
+  ): Promise<boolean> {
     const response = await fetch(
-      `${API_BASE_URL}/api/preferences/permissions/open_app`,
+      `${API_BASE_URL}/api/preferences/permissions/${permission}`,
       {
         method: "PUT",
         headers: {
@@ -290,41 +459,32 @@ export function CompanionWorkspace() {
     }
 
     const data: PermissionResponse = (await response.json()) as PermissionResponse;
-    setHasOpenAppPermission(data.granted);
+    if (permission === "open_app") {
+      setHasOpenAppPermission(data.granted);
+    } else {
+      setHasOpenUrlPermission(data.granted);
+    }
     return data.granted;
   }
 
-  async function persistOpenUrlPermission(granted: boolean): Promise<boolean> {
-    const response = await fetch(
-      `${API_BASE_URL}/api/preferences/permissions/open_url`,
-      {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ granted }),
-      },
-    );
-
-    if (!response.ok) {
-      const errorPayload = (await response.json().catch(() => null)) as
-        | { detail?: string }
-        | null;
-      throw new Error(
-        errorPayload?.detail ?? `Runtime returned ${response.status}`,
-      );
-    }
-
-    const data: PermissionResponse = (await response.json()) as PermissionResponse;
-    setHasOpenUrlPermission(data.granted);
-    return data.granted;
+  async function refreshMicroUtilitiesState(): Promise<void> {
+    const state = await microUtilityApi.getState();
+    setMicroUtilityState(state);
   }
 
   async function refreshWorkspaceSettings(): Promise<void> {
-    const [openAppResponse, openUrlResponse, installerStatus] = await Promise.all([
+    const [
+      openAppResponse,
+      openUrlResponse,
+      installerStatus,
+      utilityState,
+      nextStreamState,
+    ] = await Promise.all([
       fetch(`${API_BASE_URL}/api/preferences/permissions/open_app`),
       fetch(`${API_BASE_URL}/api/preferences/permissions/open_url`),
       installerApi.getInstallerStatus(),
+      microUtilityApi.getState(),
+      streamApi.getState(),
     ]);
 
     if (!openAppResponse.ok || !openUrlResponse.ok) {
@@ -340,6 +500,11 @@ export function CompanionWorkspace() {
     setHasOpenUrlPermission(openUrlData.granted);
     setSelectedModel(installerStatus.ai.model);
     setInstallerCompleted(installerStatus.completed);
+    setMicroUtilityState(utilityState);
+    setStreamState(nextStreamState);
+    seenStreamEventIdsRef.current = new Set(
+      nextStreamState.recent_events.map((event) => event.id),
+    );
   }
 
   async function handleResetChatHistory(): Promise<void> {
@@ -354,8 +519,8 @@ export function CompanionWorkspace() {
   async function handleResetPermissions(): Promise<void> {
     try {
       await Promise.all([
-        persistOpenAppPermission(false),
-        persistOpenUrlPermission(false),
+        persistPermission("open_app", false),
+        persistPermission("open_url", false),
       ]);
       setSettingsNotice("App and browser permissions were reset.");
     } catch (error) {
@@ -390,6 +555,211 @@ export function CompanionWorkspace() {
     }
   }
 
+  async function handleSaveStreamSettings(
+    payload: Partial<StreamSettings>,
+  ): Promise<void> {
+    try {
+      setIsSavingStreamSettings(true);
+      const settings = await streamApi.updateSettings(payload);
+      setStreamState((currentState) =>
+        currentState === null
+          ? {
+              settings,
+              recent_events: [],
+            }
+          : {
+              ...currentState,
+              settings,
+            },
+      );
+      setStreamNotice("Stream settings were saved for this companion.");
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown stream settings error";
+      setStreamNotice(`I could not save stream settings yet: ${detail}`);
+    } finally {
+      setIsSavingStreamSettings(false);
+    }
+  }
+
+  async function handlePreviewStreamEvent(
+    type: keyof StreamReactionPreferences,
+  ): Promise<void> {
+    try {
+      const event = await streamApi.previewEvent(type);
+      setStreamState((currentState) =>
+        currentState === null
+          ? null
+          : {
+              ...currentState,
+              recent_events: [event, ...currentState.recent_events].slice(0, 20),
+            },
+      );
+      seenStreamEventIdsRef.current.add(event.id);
+      setActiveStreamEvent(event);
+      if (streamBubbleTimerRef.current !== null) {
+        window.clearTimeout(streamBubbleTimerRef.current);
+      }
+      streamBubbleTimerRef.current = window.setTimeout(() => {
+        streamBubbleTimerRef.current = null;
+        setActiveStreamEvent(null);
+      }, 7000);
+      companionEventBus.emit("utilityActionCompleted", {
+        action: "stream_event",
+      });
+      setStreamNotice("Preview stream reaction sent to the companion.");
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown preview error";
+      setStreamNotice(`I could not preview a stream event yet: ${detail}`);
+    }
+  }
+
+  async function handleClearStreamEvents(): Promise<void> {
+    try {
+      await streamApi.clearEvents();
+      setStreamState((currentState) =>
+        currentState === null
+          ? null
+          : {
+              ...currentState,
+              recent_events: [],
+            },
+      );
+      seenStreamEventIdsRef.current = new Set();
+      setActiveStreamEvent(null);
+      setStreamNotice("Recent stream events were cleared.");
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown stream clear error";
+      setStreamNotice(`I could not clear stream events yet: ${detail}`);
+    }
+  }
+
+  function requestPermissionConfirmation(
+    permission: "open_app" | "open_url",
+    target: string | null,
+  ): boolean {
+    if (permission === "open_app") {
+      const formattedTarget = target ? target.replace(/[-_]/g, " ") : "that app";
+      const readableTarget =
+        formattedTarget.charAt(0).toUpperCase() + formattedTarget.slice(1);
+      return window.confirm(
+        `Allow Companion OS to launch ${readableTarget}?`,
+      );
+    }
+
+    return window.confirm(
+      "Allow Companion OS to open links and searches in your default browser?",
+    );
+  }
+
+  async function captureClipboardIntoHistory(): Promise<void> {
+    let clipboardText = "";
+
+    try {
+      clipboardText = await navigator.clipboard.readText();
+    } catch {
+      appendCompanionMessage(
+        "I could not reach the clipboard yet. Try the save action again after allowing clipboard access for this window.",
+        false,
+      );
+      return;
+    }
+
+    if (!clipboardText.trim()) {
+      appendCompanionMessage(
+        "Your clipboard is empty right now, so there was nothing to save.",
+        false,
+      );
+      return;
+    }
+
+    try {
+      const result = await microUtilityApi.captureClipboard(clipboardText);
+      await refreshMicroUtilitiesState();
+      appendCompanionMessage(result.message, true);
+      companionEventBus.emit("utilityActionCompleted", {
+        action: "capture_clipboard",
+      });
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown clipboard error";
+      appendCompanionMessage(
+        `I could not save the clipboard yet: ${detail}`,
+        false,
+      );
+    }
+  }
+
+  async function handleResponseAction(
+    action: Record<string, unknown> | null | undefined,
+    userText: string,
+  ): Promise<void> {
+    if (!action || typeof action.type !== "string") {
+      return;
+    }
+
+    if (action.type === "capture_clipboard") {
+      await captureClipboardIntoHistory();
+      return;
+    }
+
+    if (action.type === "permission_required") {
+      const permission =
+        action.permission === "open_app" || action.permission === "open_url"
+          ? action.permission
+          : null;
+
+      if (permission === null) {
+        return;
+      }
+
+      const target =
+        typeof action.target === "string" ? action.target : null;
+      const confirmed = requestPermissionConfirmation(permission, target);
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        await persistPermission(permission, true);
+      } catch (error) {
+        const detail =
+          error instanceof Error ? error.message : "Unknown permission error";
+        appendCompanionMessage(
+          `I could not save that permission yet: ${detail}`,
+          false,
+        );
+        return;
+      }
+
+      await submitMessage(userText, {
+        appendUserMessage: false,
+        force: true,
+      });
+      return;
+    }
+
+    if (
+      action.type === "created_timer" ||
+      action.type === "created_alarm" ||
+      action.type === "created_reminder" ||
+      action.type === "created_todo" ||
+      action.type === "shortcut_executed"
+    ) {
+      await refreshMicroUtilitiesState();
+      companionEventBus.emit("utilityActionCompleted", {
+        action: action.type,
+      });
+      return;
+    }
+
+    if (action.type === "listed_utilities") {
+      await refreshMicroUtilitiesState();
+    }
+  }
+
   async function sendMessageToRuntime(userText: string): Promise<void> {
     try {
       const response = await fetch(`${API_BASE_URL}/api/chat`, {
@@ -407,263 +777,38 @@ export function CompanionWorkspace() {
       const data: CompanionResponse =
         (await response.json()) as CompanionResponse;
 
-      setMessages((currentMessages) => [
-        ...currentMessages,
-        {
-          id: nextMessageId(),
-          sender: "companion",
-          text: data.assistant_response,
-        },
-      ]);
-      companionEventBus.emit("responseReceived", {
-        message: data.assistant_response,
-        ok: data.ok,
-      });
+      const responseIsPositive =
+        data.ok || data.action?.type === "permission_required";
+      appendCompanionMessage(data.assistant_response, responseIsPositive);
+      await handleResponseAction(data.action, userText);
     } catch (error) {
       const detail =
         error instanceof Error ? error.message : "Unknown connection error";
-      const fallbackMessage = `I could not reach the runtime: ${detail}`;
-
-      setMessages((currentMessages) => [
-        ...currentMessages,
-        {
-          id: nextMessageId(),
-          sender: "companion",
-          text: fallbackMessage,
-        },
-      ]);
-      companionEventBus.emit("responseReceived", {
-        message: fallbackMessage,
-        ok: false,
-      });
+      appendCompanionMessage(`I could not reach the runtime: ${detail}`, false);
     } finally {
       setIsSending(false);
       isSendingRef.current = false;
     }
   }
 
-  async function openApp(appName: "spotify" | "discord"): Promise<void> {
-    if (isSending || isLoadingOpenAppPermission) {
+  async function submitMessage(
+    userText: string,
+    options?: { appendUserMessage?: boolean; force?: boolean },
+  ): Promise<void> {
+    const trimmedText = userText.trim();
+    if (!trimmedText || (isSendingRef.current && options?.force !== true)) {
       return;
-    }
-
-    if (!hasOpenAppPermission) {
-      const confirmed = window.confirm(
-        `Allow Companion OS to launch ${appName === "spotify" ? "Spotify" : "Discord"}?`,
-      );
-
-      if (!confirmed) {
-        return;
-      }
-
-      try {
-        await persistOpenAppPermission(true);
-      } catch (error) {
-        const detail =
-          error instanceof Error ? error.message : "Unknown permission error";
-        const permissionMessage = `I could not save the open_app permission: ${detail}`;
-
-        setMessages((currentMessages) => [
-          ...currentMessages,
-          {
-            id: nextMessageId(),
-            sender: "companion",
-            text: permissionMessage,
-          },
-        ]);
-        companionEventBus.emit("responseReceived", {
-          message: permissionMessage,
-          ok: false,
-        });
-        return;
-      }
     }
 
     setIsSending(true);
     isSendingRef.current = true;
 
-    const userMessage =
-      appName === "spotify" ? "Open Spotify" : "Open Discord";
-
-    setMessages((currentMessages) => [
-      ...currentMessages,
-      {
-        id: nextMessageId(),
-        sender: "user",
-        text: userMessage,
-      },
-    ]);
-    companionEventBus.emit("userMessageSent", { message: userMessage });
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/skills/open-app`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ app: appName }),
-      });
-
-      if (!response.ok) {
-        const errorPayload = (await response.json().catch(() => null)) as
-          | { detail?: string }
-          | null;
-
-        if (response.status === 403) {
-          setHasOpenAppPermission(false);
-        }
-
-        throw new Error(
-          errorPayload?.detail ?? `Runtime returned ${response.status}`,
-        );
-      }
-
-      const data: OpenAppResponse = (await response.json()) as OpenAppResponse;
-
-      setMessages((currentMessages) => [
-        ...currentMessages,
-        {
-          id: nextMessageId(),
-          sender: "companion",
-          text: data.message,
-        },
-      ]);
-      companionEventBus.emit("responseReceived", {
-        message: data.message,
-        ok: data.ok,
-      });
-    } catch (error) {
-      const detail =
-        error instanceof Error ? error.message : "Unknown launch error";
-      const fallbackMessage = `I could not open ${appName}: ${detail}`;
-
-      setMessages((currentMessages) => [
-        ...currentMessages,
-        {
-          id: nextMessageId(),
-          sender: "companion",
-          text: fallbackMessage,
-        },
-      ]);
-      companionEventBus.emit("responseReceived", {
-        message: fallbackMessage,
-        ok: false,
-      });
-    } finally {
-      setIsSending(false);
-      isSendingRef.current = false;
-    }
-  }
-
-  async function runBrowserHelper(requestText: string): Promise<void> {
-    if (isSending || isLoadingOpenUrlPermission) {
-      return;
+    if (options?.appendUserMessage !== false) {
+      appendMessage("user", trimmedText);
     }
 
-    if (!hasOpenUrlPermission) {
-      const confirmed = window.confirm(
-        "Allow Companion OS to open links and searches in your default browser?",
-      );
-
-      if (!confirmed) {
-        return;
-      }
-
-      try {
-        await persistOpenUrlPermission(true);
-      } catch (error) {
-        const detail =
-          error instanceof Error ? error.message : "Unknown permission error";
-        const permissionMessage = `I could not save browser access: ${detail}`;
-
-        setMessages((currentMessages) => [
-          ...currentMessages,
-          {
-            id: nextMessageId(),
-            sender: "companion",
-            text: permissionMessage,
-          },
-        ]);
-        companionEventBus.emit("responseReceived", {
-          message: permissionMessage,
-          ok: false,
-        });
-        return;
-      }
-    }
-
-    setIsSending(true);
-    isSendingRef.current = true;
-
-    setMessages((currentMessages) => [
-      ...currentMessages,
-      {
-        id: nextMessageId(),
-        sender: "user",
-        text: requestText,
-      },
-    ]);
-    companionEventBus.emit("userMessageSent", { message: requestText });
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/skills/browser-helper`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ request: requestText }),
-      });
-
-      if (!response.ok) {
-        const errorPayload = (await response.json().catch(() => null)) as
-          | { detail?: string }
-          | null;
-
-        if (response.status === 403) {
-          setHasOpenUrlPermission(false);
-        }
-
-        throw new Error(
-          errorPayload?.detail ?? `Runtime returned ${response.status}`,
-        );
-      }
-
-      const data: BrowserHelperResponse =
-        (await response.json()) as BrowserHelperResponse;
-
-      setMessages((currentMessages) => [
-        ...currentMessages,
-        {
-          id: nextMessageId(),
-          sender: "companion",
-          text: data.message,
-        },
-      ]);
-      companionEventBus.emit("responseReceived", {
-        message: data.message,
-        ok: data.ok,
-      });
-    } catch (error) {
-      const detail =
-        error instanceof Error ? error.message : "Unknown browser error";
-      const fallbackMessage = `I could not use the browser helper: ${detail}`;
-
-      setMessages((currentMessages) => [
-        ...currentMessages,
-        {
-          id: nextMessageId(),
-          sender: "companion",
-          text: fallbackMessage,
-        },
-      ]);
-      companionEventBus.emit("responseReceived", {
-        message: fallbackMessage,
-        ok: false,
-      });
-    } finally {
-      setIsSending(false);
-      isSendingRef.current = false;
-    }
+    companionEventBus.emit("userMessageSent", { message: trimmedText });
+    await sendMessageToRuntime(trimmedText);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -674,22 +819,10 @@ export function CompanionWorkspace() {
       return;
     }
 
-    setIsSending(true);
-    isSendingRef.current = true;
-
-    setMessages((currentMessages) => [
-      ...currentMessages,
-      {
-        id: nextMessageId(),
-        sender: "user",
-        text: trimmedDraft,
-      },
-    ]);
     setDraft("");
     draftRef.current = "";
     companionEventBus.emit("draftChanged", { draft: "" });
-    companionEventBus.emit("userMessageSent", { message: trimmedDraft });
-    await sendMessageToRuntime(trimmedDraft);
+    await submitMessage(trimmedDraft);
   }
 
   function handleDraftChange(nextDraft: string): void {
@@ -698,18 +831,39 @@ export function CompanionWorkspace() {
   }
 
   return (
-    <main className="app-shell">
-      <section className="stage-panel">
+    <main
+      className={`app-shell${
+        streamState?.settings.overlay_enabled && !isSettingsOpen
+          ? " app-shell--overlay"
+          : ""
+      }`}
+    >
+      <section
+        className={`stage-panel${
+          streamState?.settings.overlay_enabled && !isSettingsOpen
+            ? " stage-panel--overlay"
+            : ""
+        }`}
+      >
         <div className="stage-panel__copy">
           <span className="eyebrow">Companion OS</span>
           <h1>One companion, shifting state with your attention.</h1>
           <p>
-            The desktop shell now follows a simple state machine: idle when the
+            The desktop shell now keeps one calm state machine: idle when the
             room is quiet, listening while you type, thinking while the runtime
-            works, talking when a reply comes back, and briefly shifting into
-            error when the local model needs attention.
+            works, talking when a reply comes back, reacting briefly when a
+            timer or shortcut lands, and moving into error only when the local
+            runtime genuinely needs help.
           </p>
         </div>
+        {activeStreamEvent ? (
+          <article className="stream-bubble" aria-live="polite">
+            <span className="eyebrow">
+              {activeStreamEvent.provider === "twitch" ? "Twitch" : "YouTube"}
+            </span>
+            <p>{activeStreamEvent.bubble_text}</p>
+          </article>
+        ) : null}
         <CompanionAvatar state={companionState} />
       </section>
 
@@ -807,8 +961,42 @@ export function CompanionWorkspace() {
                 {settingsNotice}
               </p>
             ) : null}
+
+            <MemoryPrivacySettings />
+            <PersonalityPackSettings />
+            <StreamIntegrationSettings
+              isSaving={isSavingStreamSettings}
+              notice={streamNotice}
+              recentEvents={streamState?.recent_events ?? []}
+              settings={streamState?.settings ?? null}
+              onClearEvents={handleClearStreamEvents}
+              onPreview={handlePreviewStreamEvent}
+              onSave={handleSaveStreamSettings}
+            />
           </section>
         ) : null}
+
+        <MicroUtilitiesPanel
+          isBusy={
+            isSending ||
+            isLoadingUtilities ||
+            isLoadingOpenAppPermission ||
+            isLoadingOpenUrlPermission
+          }
+          state={microUtilityState}
+          onSetTimer={() => {
+            void submitMessage("set a 5 minute timer");
+          }}
+          onSaveClipboard={() => {
+            void submitMessage("save clipboard");
+          }}
+          onShowTodos={() => {
+            void submitMessage("show my todo list");
+          }}
+          onRunShortcut={(shortcutId) => {
+            void submitMessage(`run shortcut ${shortcutId}`);
+          }}
+        />
 
         <div className="message-list" role="log" aria-live="polite">
           {messages.map((message) => (
@@ -830,7 +1018,7 @@ export function CompanionWorkspace() {
             disabled={isSending || isLoadingOpenAppPermission}
             type="button"
             onClick={() => {
-              void openApp("spotify");
+              void submitMessage("open Spotify");
             }}
           >
             Open Spotify
@@ -840,7 +1028,7 @@ export function CompanionWorkspace() {
             disabled={isSending || isLoadingOpenUrlPermission}
             type="button"
             onClick={() => {
-              void runBrowserHelper("search for Companion OS local setup");
+              void submitMessage("search for Companion OS local setup");
             }}
           >
             Search Companion OS
@@ -849,7 +1037,7 @@ export function CompanionWorkspace() {
 
         <form className="composer" onSubmit={handleSubmit}>
           <label className="composer__label" htmlFor="chat-input">
-            Type a message and send it to the FastAPI runtime.
+            Type a message and send it to the local companion runtime.
           </label>
           <textarea
             id="chat-input"

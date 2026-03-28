@@ -21,6 +21,14 @@ DEFAULT_PREFERENCES: Final[dict[str, object]] = {
         "provider": "local",
         "selected_model": RECOMMENDED_LOCAL_MODEL,
     },
+    "personality": {
+        "active_pack_id": None,
+    },
+    "memory": {
+        "long_term_memory_enabled": True,
+        "summary_frequency_messages": 25,
+        "cloud_backup_enabled": False,
+    },
 }
 
 _preferences_lock = Lock()
@@ -49,12 +57,20 @@ def _read_preferences() -> dict[str, object]:
 
     permissions = loaded_preferences.get("permissions", {})
     ai_preferences = loaded_preferences.get("ai", {})
+    personality_preferences = loaded_preferences.get("personality", {})
+    memory_preferences = loaded_preferences.get("memory", {})
 
     selected_model = str(
         ai_preferences.get("selected_model", RECOMMENDED_LOCAL_MODEL)
     ).strip().lower()
     if selected_model not in SUPPORTED_LOCAL_MODELS:
         selected_model = RECOMMENDED_LOCAL_MODEL
+
+    summary_frequency_messages = int(
+        memory_preferences.get("summary_frequency_messages", 25)
+    )
+    if summary_frequency_messages < 1:
+        summary_frequency_messages = 25
 
     return {
         "permissions": {
@@ -64,6 +80,22 @@ def _read_preferences() -> dict[str, object]:
         "ai": {
             "provider": str(ai_preferences.get("provider", "local")),
             "selected_model": selected_model,
+        },
+        "personality": {
+            "active_pack_id": (
+                str(personality_preferences.get("active_pack_id")).strip()
+                if personality_preferences.get("active_pack_id") is not None
+                else None
+            ),
+        },
+        "memory": {
+            "long_term_memory_enabled": bool(
+                memory_preferences.get("long_term_memory_enabled", True)
+            ),
+            "summary_frequency_messages": summary_frequency_messages,
+            "cloud_backup_enabled": bool(
+                memory_preferences.get("cloud_backup_enabled", False)
+            ),
         },
     }
 
@@ -122,3 +154,100 @@ def set_selected_model(model_name: str) -> str:
         ai_preferences["selected_model"] = normalized_model_name
         _write_preferences(preferences)
         return str(ai_preferences["selected_model"])
+
+
+def get_active_pack_id() -> str | None:
+    """Return the selected personality pack id, if present."""
+
+    with _preferences_lock:
+        preferences = _read_preferences()
+        personality_preferences = preferences.get("personality", {})
+        if not isinstance(personality_preferences, dict):
+            return None
+
+        active_pack_id = personality_preferences.get("active_pack_id")
+        if active_pack_id is None:
+            return None
+
+        normalized_pack_id = str(active_pack_id).strip()
+        return normalized_pack_id or None
+
+
+def set_active_pack_id(pack_id: str | None) -> str | None:
+    """Persist the selected active personality pack id."""
+
+    normalized_pack_id = None if pack_id is None else pack_id.strip().lower()
+    if normalized_pack_id == "":
+        normalized_pack_id = None
+
+    with _preferences_lock:
+        preferences = _read_preferences()
+        personality_preferences = preferences.get("personality")
+        if not isinstance(personality_preferences, dict):
+            personality_preferences = {}
+            preferences["personality"] = personality_preferences
+
+        personality_preferences["active_pack_id"] = normalized_pack_id
+        _write_preferences(preferences)
+        return normalized_pack_id
+
+
+def get_memory_settings() -> dict[str, object]:
+    """Return persisted long-term memory and privacy settings."""
+
+    with _preferences_lock:
+        preferences = _read_preferences()
+        memory_preferences = preferences.get("memory", {})
+        if not isinstance(memory_preferences, dict):
+            memory_preferences = {}
+
+        return {
+            "long_term_memory_enabled": bool(
+                memory_preferences.get("long_term_memory_enabled", True)
+            ),
+            "summary_frequency_messages": int(
+                memory_preferences.get("summary_frequency_messages", 25)
+            ),
+            "cloud_backup_enabled": bool(
+                memory_preferences.get("cloud_backup_enabled", False)
+            ),
+        }
+
+
+def update_memory_settings(
+    *,
+    long_term_memory_enabled: bool | None = None,
+    summary_frequency_messages: int | None = None,
+    cloud_backup_enabled: bool | None = None,
+) -> dict[str, object]:
+    """Persist long-term memory and privacy settings."""
+
+    if summary_frequency_messages is not None and summary_frequency_messages < 1:
+        raise ValueError("summary_frequency_messages must be at least 1")
+
+    with _preferences_lock:
+        preferences = _read_preferences()
+        memory_preferences = preferences.get("memory")
+        if not isinstance(memory_preferences, dict):
+            memory_preferences = {}
+            preferences["memory"] = memory_preferences
+
+        if long_term_memory_enabled is not None:
+            memory_preferences["long_term_memory_enabled"] = long_term_memory_enabled
+        if summary_frequency_messages is not None:
+            memory_preferences["summary_frequency_messages"] = summary_frequency_messages
+        if cloud_backup_enabled is not None:
+            memory_preferences["cloud_backup_enabled"] = cloud_backup_enabled
+
+        _write_preferences(preferences)
+        return {
+            "long_term_memory_enabled": bool(
+                memory_preferences.get("long_term_memory_enabled", True)
+            ),
+            "summary_frequency_messages": int(
+                memory_preferences.get("summary_frequency_messages", 25)
+            ),
+            "cloud_backup_enabled": bool(
+                memory_preferences.get("cloud_backup_enabled", False)
+            ),
+        }

@@ -12,6 +12,10 @@
  * including fallback error text rendered as a companion message that can
  * drive the companion into its `error` state.
  *
+ * `utilityActionCompleted`
+ * Fired when a timer, reminder, to-do, clipboard save, or shortcut completes
+ * and the companion should briefly react without interrupting the chat flow.
+ *
  * `windowFocusChanged`
  * Fired when the desktop window gains or loses focus.
  */
@@ -25,6 +29,9 @@ export type CompanionEventMap = {
   responseReceived: {
     message: string;
     ok: boolean;
+  };
+  utilityActionCompleted: {
+    action: string;
   };
   windowFocusChanged: {
     focused: boolean;
