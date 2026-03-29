@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import router as api_router
+from .runtime_logging import setup_runtime_logging
 
 
 def create_app() -> FastAPI:
@@ -17,6 +18,7 @@ def create_app() -> FastAPI:
     Returns:
         FastAPI: configured app instance.
     """
+    setup_runtime_logging()
     app = FastAPI(title="Companion OS Agent Runtime", version="0.1.0")
 
     app.add_middleware(
