@@ -11,7 +11,7 @@ import type {
 
 function createStatus(): InstallerStatus {
   return {
-    current_step: "environment-check",
+    current_step: "download",
     completed: false,
     environment: {
       checks: [
@@ -57,23 +57,13 @@ function createStatus(): InstallerStatus {
       all_ready: false,
     },
     steps: {
-      "environment-check": {
-        id: "environment-check",
-        title: "Environment Check",
-        description: "Inspect this PC for the tools needed to run the local companion.",
+      download: {
+        id: "download",
+        title: "Download",
+        description:
+          "Prepare the local setup package and required prerequisites for this PC.",
         status: "pending",
-        message: "We have not checked this device yet.",
-        error: null,
-        recovery_instructions: [],
-        can_retry: false,
-        can_repair: false,
-      },
-      "prepare-prerequisites": {
-        id: "prepare-prerequisites",
-        title: "Prepare Prerequisites",
-        description: "Install missing build tools and local model runtime support.",
-        status: "pending",
-        message: "Waiting for the environment check.",
+        message: "Download has not started yet.",
         error: null,
         recovery_instructions: [],
         can_retry: false,
@@ -145,16 +135,12 @@ function createInstallerApiMock(
   return {
     getInstallerStatus: vi.fn(async () => structuredClone(status)),
     checkEnvironment: vi.fn(async () => {
-      status.steps["environment-check"].status = "complete";
-      status.steps["environment-check"].message =
-        "We found missing items to prepare: Rust, Ollama.";
-      status.current_step = "prepare-prerequisites";
       return {
         environment: structuredClone(status.environment),
-        step: structuredClone(status.steps["environment-check"]),
+        step: structuredClone(status.steps.download),
       };
     }),
-    preparePrerequisites: vi.fn(async () => {
+    downloadSetup: vi.fn(async () => {
       status.environment = {
         ...status.environment,
         checks: status.environment.checks.map((dependency) => ({
@@ -168,17 +154,27 @@ function createInstallerApiMock(
         missing_runtime_dependencies: [],
         all_ready: true,
       };
-      status.steps["prepare-prerequisites"].status = "complete";
-      status.steps["prepare-prerequisites"].message =
-        "Local prerequisites are ready. OpenClaw can be installed now.";
+      status.steps.download.status = "complete";
+      status.steps.download.message =
+        "Download finished. This PC is ready for OpenClaw.";
       status.current_step = "install-openclaw";
       return {
         attempted: true,
         installed: ["Rust", "Ollama"],
         remaining: [],
-        message: "Prerequisite preparation finished.",
+        message: "Download finished.",
         environment: structuredClone(status.environment),
-        step: structuredClone(status.steps["prepare-prerequisites"]),
+        step: structuredClone(status.steps.download),
+      };
+    }),
+    preparePrerequisites: vi.fn(async () => {
+      return {
+        attempted: true,
+        installed: [],
+        remaining: [],
+        message: "Download finished.",
+        environment: structuredClone(status.environment),
+        step: structuredClone(status.steps.download),
       };
     }),
     installOpenClaw: vi.fn(async () => {
@@ -234,8 +230,7 @@ describe("InstallOpenClaw", () => {
     await screen.findByRole("button", { name: "Use this model and continue" });
 
     await waitFor(() => {
-      expect(installerApi.checkEnvironment).toHaveBeenCalled();
-      expect(installerApi.preparePrerequisites).toHaveBeenCalled();
+      expect(installerApi.downloadSetup).toHaveBeenCalled();
       expect(installerApi.installOpenClaw).toHaveBeenCalled();
     });
 
@@ -279,37 +274,36 @@ describe("InstallOpenClaw", () => {
 
   it("shows recovery guidance and a retry action when a step needs repair", async () => {
     const installerApi = createInstallerApiMock((status) => {
-      status.steps["environment-check"].status = "complete";
-      status.steps["prepare-prerequisites"].status = "needs_action";
-      status.steps["prepare-prerequisites"].message =
-        "Automatic setup needs a quick manual step before it can continue.";
-      status.steps["prepare-prerequisites"].error =
+      status.steps.download.status = "needs_action";
+      status.steps.download.message =
+        "Download is paused until one quick manual step is finished.";
+      status.steps.download.error =
         "winget is not available on this device.";
-      status.steps["prepare-prerequisites"].recovery_instructions = [
+      status.steps.download.recovery_instructions = [
         "Install or enable App Installer from Microsoft, reopen Companion OS, and choose Retry.",
         "After finishing the missing items, reopen the wizard and choose Retry to continue.",
       ];
-      status.steps["prepare-prerequisites"].can_retry = true;
-      status.steps["prepare-prerequisites"].can_repair = true;
-      status.current_step = "prepare-prerequisites";
+      status.steps.download.can_retry = true;
+      status.steps.download.can_repair = true;
+      status.current_step = "download";
     });
     const user = userEvent.setup();
 
     render(<InstallOpenClaw installerApi={installerApi} onComplete={vi.fn()} />);
 
     expect(
-      await screen.findAllByText(/Automatic setup needs a quick manual step/i),
+      await screen.findAllByText(/Download is paused until one quick manual step/i),
     ).not.toHaveLength(0);
     expect(
       screen.getByText(/Install or enable App Installer from Microsoft/i),
     ).toBeInTheDocument();
 
     await user.click(
-      screen.getByRole("button", { name: "Retry prerequisite setup" }),
+      screen.getByRole("button", { name: "Retry download" }),
     );
 
     await waitFor(() => {
-      expect(installerApi.preparePrerequisites).toHaveBeenCalled();
+      expect(installerApi.downloadSetup).toHaveBeenCalled();
     });
   });
 });

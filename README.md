@@ -73,6 +73,23 @@ Companion OS welcomes contributions!  See the `CONTRIBUTING.md` file (to be crea
 3. Open a pull request with a clear description of your changes.
 4. Ensure that your PR passes all CI checks and includes relevant tests.
 
+## Testing
+
+The MVP expects both runtime and desktop coverage for shipped features:
+
+- Backend unit and integration coverage uses `pytest` plus `fastapi.testclient`.
+- Desktop unit and interaction coverage uses Vitest plus React Testing Library.
+- When a feature changes behavior, update both the tests and the relevant docs in the same slice.
+
+Useful local commands:
+
+- `cd services/agent-runtime && .\.venv\Scripts\python -m pytest`
+- `cd apps/desktop && npm run test -- --run`
+- `cd apps/desktop && npm run lint`
+- `cd apps/desktop && npm run build`
+
+Feature-specific docs live under [docs/README.md](./docs/README.md).
+
 ## Desktop Installation Flow
 
 The desktop onboarding flow should remain consistent across product and implementation work:
@@ -110,6 +127,36 @@ The first MVP action skills use explicit permissions and companion-style confirm
 - `open_app` launches supported desktop apps such as Spotify after user confirmation.
 - `browser-helper` can handle `search for <query>` and `open <url>` by opening the default browser after the user grants browser access.
 
+## MVP Personality Packs
+
+The desktop shell now supports local personality packs without breaking the core rule of one persistent companion:
+
+- Packs install from signed zip archives that include `pack.json` plus local assets such as icons, VRM/FBX files, and audio cues.
+- The runtime validates the manifest schema, rejects unsupported capabilities, verifies the manifest signature, and checks per-asset SHA-256 hashes before a pack is installed.
+- Installed packs are stored locally and can be listed or switched from the desktop settings surface.
+- Tavern Card V2/V3 PNGs can be imported through the runtime conversion tool, which maps known card fields into the pack format and stores unknown fields under `extensions`.
+- The active pack is persisted locally so the companion reopens with the same selected identity on restart.
+
+## MVP Curated Marketplace
+
+The curated marketplace is a catalog surface inside the same companion settings flow, not a separate store mode:
+
+- The runtime serves curated listings for personality packs and skills with metadata for name, description, version, required capabilities, price label, publisher signature, and creator revenue share.
+- Personality-pack listings must include a content rating and an IP declaration before they can be shown as installable.
+- Moderation metadata combines automated scans such as malware, capability, content, and license checks with a manual review record.
+- The desktop app clearly labels free versus paid listings and keeps all core companion functionality free.
+- In the MVP, approved free personality packs can be installed directly from the curated catalog, while paid listings and skill listings remain browse-only until checkout and skill distribution are ready.
+
+## MVP Memory & Privacy
+
+The runtime now keeps long-term memory local and summarized by default:
+
+- Conversation history is condensed into local summaries instead of storing every raw chat message forever.
+- Long-term memory can be disabled completely from the desktop settings surface.
+- Summary cadence is user-controlled and defaults to a local summary every 25 messages.
+- Saved summaries can be viewed, edited, and deleted from the desktop app.
+- Cloud backup remains opt-in only. The MVP stores memory locally on the device unless the user explicitly changes that privacy setting.
+
 ## MVP Command Routing
 
 Incoming companion messages use a minimal router rather than a planner:
@@ -120,6 +167,27 @@ Incoming companion messages use a minimal router rather than a planner:
 - everything else falls back to normal companion chat
 
 The router returns a structured result with the chosen route, the user message, the companion reply, and optional action metadata so the desktop shell can keep one seamless conversation.
+
+## MVP Micro-Utilities
+
+The first companion-side utility set is now local, quiet, and conversation-driven:
+
+- Timers and alarms can be created from messages such as `set a 5 minute timer` or `set an alarm for 7:30 pm`.
+- Reminders and to-do notes can be added from natural requests such as `remind me to stretch in 10 minutes` and `add todo buy milk`.
+- Clipboard history stays local and can be captured through `save clipboard`, with the desktop shell reading the clipboard and sending only the current text to the local runtime.
+- Quick-launch shortcuts are exposed as first-party utilities so the companion can run saved actions such as Spotify or a browser search without breaking the single-conversation flow.
+- Successful utility actions refresh the desktop "Desk" surface and briefly move the character state machine into a `reaction` state instead of interrupting the user with intrusive UI.
+
+## MVP Stream & Overlay Integration
+
+The streaming layer remains part of the same companion rather than a separate streaming mode:
+
+- The desktop shell can switch into a transparent overlay presentation so the companion can sit above the desktop and capture cleanly in OBS or Twitch scenes.
+- Overlay click-through can be enabled for live use, while the companion still keeps an escape path back to interactive control.
+- Stream integration settings are stored locally, including provider choice, overlay preferences, and which stream events should trigger reactions.
+- The runtime can ingest supported Twitch EventSub webhook notifications for subscriptions and cheers.
+- The runtime can ingest supported YouTube live events from a local relay or polling bridge, including new memberships and Super Chats.
+- Recent stream events are stored locally and surfaced back to the desktop shell so the companion can show quick reaction bubbles without interrupting the main conversation flow.
 
 ### Developing Skills
 

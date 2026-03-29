@@ -5,8 +5,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.installer as installer
+import app.memory_manager as memory_manager
+import app.micro_utilities as micro_utilities
+import app.personality_packs as personality_packs
 import app.preferences as preferences
 import app.skills.browser_helper as browser_helper_skill
+import app.stream_integration as stream_integration
 from app.main import app
 from app.tools.open_app import OpenAppResult
 from app.tools.open_url import OpenUrlResult
@@ -21,6 +25,18 @@ def temp_state_files(tmp_path, monkeypatch) -> Path:
     monkeypatch.setattr(preferences, "PREFERENCES_FILE", preferences_file)
     monkeypatch.setattr(installer, "INSTALLER_STATE_FILE", tmp_path / "installer_state.json")
     monkeypatch.setattr(installer, "OPENCLAW_INSTALL_DIR", tmp_path / "openclaw")
+    monkeypatch.setattr(personality_packs, "PACKS_DIR", tmp_path / "personality_packs")
+    monkeypatch.setattr(memory_manager, "MEMORY_STATE_FILE", tmp_path / "memory_state.json")
+    monkeypatch.setattr(
+        micro_utilities,
+        "MICRO_UTILITIES_FILE",
+        tmp_path / "micro_utilities.json",
+    )
+    monkeypatch.setattr(
+        stream_integration,
+        "STREAM_INTEGRATION_STATE_FILE",
+        tmp_path / "stream_integration.json",
+    )
     return preferences_file
 
 
@@ -50,6 +66,7 @@ def test_health_check() -> None:
 
 
 def test_chat_returns_structured_companion_reply(monkeypatch) -> None:
+    preferences.update_memory_settings(summary_frequency_messages=2)
     monkeypatch.setattr(
         "app.api.route_user_message",
         lambda _message: SimpleNamespace(
@@ -79,6 +96,12 @@ def test_chat_returns_structured_companion_reply(monkeypatch) -> None:
             "model": "llama3.1:8b-instruct",
         },
     }
+
+    memory_response = client.get("/api/memory/summaries")
+    assert memory_response.status_code == 200
+    payload = memory_response.json()
+    assert payload["pending_message_count"] == 0
+    assert payload["summaries"][0]["title"] == "Recent: hello companion"
 
 
 def test_chat_returns_structured_app_route(monkeypatch) -> None:
@@ -110,9 +133,9 @@ def test_installer_status_returns_default_state() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["current_step"] == "environment-check"
+    assert payload["current_step"] == "download"
     assert payload["completed"] is False
-    assert payload["steps"]["environment-check"]["status"] == "pending"
+    assert payload["steps"]["download"]["status"] == "pending"
     assert payload["openclaw"]["installed"] is False
     assert payload["ai"]["provider"] == "local"
     assert payload["connection"]["connected"] is False
@@ -160,11 +183,12 @@ def test_installer_environment_check_returns_structured_dependency_state(
     payload = response.json()
     assert payload["environment"]["missing_prerequisites"] == ["Rust"]
     assert payload["environment"]["missing_runtime_dependencies"] == ["Ollama"]
-    assert payload["step"]["status"] == "complete"
+    assert payload["step"]["id"] == "download"
+    assert payload["step"]["status"] == "active"
     assert "Rust" in payload["step"]["message"]
 
 
-def test_prepare_prerequisites_completes_and_persists_state(monkeypatch) -> None:
+def test_download_step_completes_and_persists_state(monkeypatch) -> None:
     state = {"ready": False}
 
     def fake_environment_checks() -> list[installer.DependencyStatus]:
@@ -240,7 +264,7 @@ def test_prepare_prerequisites_completes_and_persists_state(monkeypatch) -> None
     monkeypatch.setattr(installer, "_command_exists", fake_command_exists)
     monkeypatch.setattr(installer, "_run_install_command", fake_run_install_command)
 
-    response = client.post("/api/installer/prepare-prerequisites")
+    response = client.post("/api/installer/download")
 
     assert response.status_code == 200
     payload = response.json()
@@ -250,10 +274,10 @@ def test_prepare_prerequisites_completes_and_persists_state(monkeypatch) -> None
     assert payload["step"]["status"] == "complete"
 
     status_response = client.get("/api/installer/status")
-    assert status_response.json()["steps"]["prepare-prerequisites"]["status"] == "complete"
+    assert status_response.json()["steps"]["download"]["status"] == "complete"
 
 
-def test_prepare_prerequisites_returns_guided_repair_when_winget_is_missing(
+def test_download_step_returns_guided_repair_when_winget_is_missing(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
@@ -288,7 +312,7 @@ def test_prepare_prerequisites_returns_guided_repair_when_winget_is_missing(
     )
     monkeypatch.setattr(installer, "_command_exists", lambda _name: False)
 
-    response = client.post("/api/installer/prepare-prerequisites")
+    response = client.post("/api/installer/download")
 
     assert response.status_code == 200
     payload = response.json()
@@ -344,6 +368,7 @@ def test_install_openclaw_requires_ready_environment_and_sets_repair_state(
     }
 
     status_response = client.get("/api/installer/status")
+    assert status_response.json()["steps"]["download"]["status"] == "needs_action"
     assert status_response.json()["steps"]["install-openclaw"]["status"] == "needs_action"
 
 
@@ -472,6 +497,103 @@ def test_get_open_app_permission_defaults_to_not_granted() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"permission": "open_app", "granted": False}
+
+
+def test_memory_settings_default_to_local_first() -> None:
+    response = client.get("/api/memory/settings")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "long_term_memory_enabled": True,
+        "summary_frequency_messages": 25,
+        "cloud_backup_enabled": False,
+        "storage_mode": "local-only",
+    }
+
+
+def test_memory_settings_update_and_summary_edit_delete(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.api.route_user_message",
+        lambda message: SimpleNamespace(
+            ok=True,
+            route="companion-chat",
+            user_message=message,
+            assistant_response="A calm local reply.",
+            action={
+                "type": "chat_reply",
+                "provider": "ollama",
+                "model": "llama3.1:8b-instruct",
+            },
+        ),
+    )
+    update_response = client.put(
+        "/api/memory/settings",
+        json={
+            "long_term_memory_enabled": True,
+            "summary_frequency_messages": 2,
+            "cloud_backup_enabled": True,
+        },
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json()["summary_frequency_messages"] == 2
+    assert update_response.json()["cloud_backup_enabled"] is True
+
+    client.post("/api/chat", json={"message": "hello there"})
+
+    summaries_response = client.get("/api/memory/summaries")
+    assert summaries_response.status_code == 200
+    summary_id = summaries_response.json()["summaries"][0]["id"]
+
+    edit_response = client.put(
+        f"/api/memory/summaries/{summary_id}",
+        json={"title": "Updated memory", "summary": "A clearer local summary."},
+    )
+
+    assert edit_response.status_code == 200
+    assert edit_response.json()["title"] == "Updated memory"
+    assert edit_response.json()["summary"] == "A clearer local summary."
+
+    delete_response = client.delete(f"/api/memory/summaries/{summary_id}")
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {"deleted": summary_id}
+
+    clear_response = client.delete("/api/memory/summaries")
+    assert clear_response.status_code == 200
+    assert clear_response.json() == {"deleted": 0}
+
+
+def test_disabling_memory_clears_pending_messages(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.api.route_user_message",
+        lambda message: SimpleNamespace(
+            ok=True,
+            route="companion-chat",
+            user_message=message,
+            assistant_response="Pending reply.",
+            action={
+                "type": "chat_reply",
+                "provider": "ollama",
+                "model": "llama3.1:8b-instruct",
+            },
+        ),
+    )
+    preferences.update_memory_settings(summary_frequency_messages=10)
+    client.post("/api/chat", json={"message": "keep this pending"})
+
+    before_response = client.get("/api/memory/summaries")
+    assert before_response.json()["pending_message_count"] == 2
+
+    update_response = client.put(
+        "/api/memory/settings",
+        json={"long_term_memory_enabled": False},
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json()["long_term_memory_enabled"] is False
+
+    after_response = client.get("/api/memory/summaries")
+    assert after_response.json()["pending_message_count"] == 0
 
 
 def test_update_open_app_permission_persists_value(
@@ -636,3 +758,208 @@ def test_browser_helper_requires_permission() -> None:
 
     assert response.status_code == 403
     assert response.json() == {"detail": "open_url permission has not been granted"}
+
+
+def test_get_micro_utilities_state_returns_defaults() -> None:
+    response = client.get("/api/utilities/state")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "timers": [],
+        "reminders": [],
+        "todos": [],
+        "clipboard_history": [],
+        "shortcuts": [
+            {
+                "id": "spotify",
+                "label": "Spotify",
+                "kind": "app",
+                "target": "spotify",
+            },
+            {
+                "id": "discord",
+                "label": "Discord",
+                "kind": "app",
+                "target": "discord",
+            },
+            {
+                "id": "local-setup",
+                "label": "Local Setup Search",
+                "kind": "browser",
+                "target": "search for Companion OS local setup",
+            },
+        ],
+    }
+
+
+def test_micro_utility_route_creates_timer() -> None:
+    response = client.post(
+        "/api/skills/micro-utilities",
+        json={"request": "set a 5 minute timer"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert response.json()["action"] == "created_timer"
+    assert response.json()["metadata"]["utility"]["label"] == "5-minute timer"
+
+    state_response = client.get("/api/utilities/state")
+    assert state_response.status_code == 200
+    assert state_response.json()["timers"][0]["label"] == "5-minute timer"
+
+
+def test_micro_utility_route_rejects_invalid_request() -> None:
+    response = client.post(
+        "/api/skills/micro-utilities",
+        json={"request": "do a dance"},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": (
+            "Unsupported utility request. Try a timer, reminder, to-do, "
+            "clipboard save, or shortcut."
+        )
+    }
+
+
+def test_capture_clipboard_route_stores_local_entry() -> None:
+    response = client.post(
+        "/api/utilities/clipboard/capture",
+        json={"text": "Remember this local note."},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == (
+        "I saved that clipboard text into your local history."
+    )
+
+    state_response = client.get("/api/utilities/state")
+    assert state_response.status_code == 200
+    assert state_response.json()["clipboard_history"][0]["text"] == (
+        "Remember this local note."
+    )
+
+
+def test_stream_state_returns_defaults() -> None:
+    response = client.get("/api/stream/state")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "settings": {
+            "enabled": False,
+            "provider": "twitch",
+            "overlay_enabled": False,
+            "click_through_enabled": False,
+            "twitch_channel_name": "",
+            "twitch_webhook_secret": "",
+            "youtube_live_chat_id": "",
+            "reaction_preferences": {
+                "new_subscriber": True,
+                "donation": True,
+                "new_member": True,
+                "super_chat": True,
+            },
+        },
+        "recent_events": [],
+    }
+
+
+def test_stream_settings_update_persists_overlay_and_reactions() -> None:
+    response = client.put(
+        "/api/stream/settings",
+        json={
+            "enabled": True,
+            "provider": "youtube",
+            "overlay_enabled": True,
+            "click_through_enabled": True,
+            "youtube_live_chat_id": "abc123",
+            "reaction_preferences": {
+                "new_member": True,
+                "super_chat": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+    assert response.json()["provider"] == "youtube"
+    assert response.json()["overlay_enabled"] is True
+    assert response.json()["click_through_enabled"] is True
+    assert response.json()["youtube_live_chat_id"] == "abc123"
+    assert response.json()["reaction_preferences"]["super_chat"] is False
+
+    state_response = client.get("/api/stream/state")
+    assert state_response.status_code == 200
+    assert state_response.json()["settings"]["provider"] == "youtube"
+
+
+def test_preview_stream_event_returns_structured_event() -> None:
+    response = client.post(
+        "/api/stream/events/preview",
+        json={"type": "donation"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["type"] == "donation"
+    assert response.json()["bubble_text"] == "Mika just sent $5.00."
+
+
+def test_twitch_webhook_verification_returns_challenge() -> None:
+    response = client.post(
+        "/api/stream/webhooks/twitch",
+        headers={"Twitch-EventSub-Message-Type": "webhook_callback_verification"},
+        json={"challenge": "verify-me"},
+    )
+
+    assert response.status_code == 200
+    assert response.text == "verify-me"
+
+
+def test_twitch_webhook_notification_stores_event() -> None:
+    client.put("/api/stream/settings", json={"enabled": True})
+
+    response = client.post(
+        "/api/stream/webhooks/twitch",
+        headers={"Twitch-EventSub-Message-Type": "notification"},
+        json={
+            "subscription": {"type": "channel.subscribe"},
+            "event": {"user_name": "Ari"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["type"] == "new_subscriber"
+    assert response.json()["bubble_text"] == "Ari just subscribed on Twitch."
+
+    events_response = client.get("/api/stream/events")
+    assert events_response.status_code == 200
+    assert events_response.json()[0]["actor_name"] == "Ari"
+
+
+def test_youtube_event_route_accepts_super_chat() -> None:
+    client.put(
+        "/api/stream/settings",
+        json={"enabled": True, "provider": "youtube"},
+    )
+
+    response = client.post(
+        "/api/stream/events/youtube",
+        json={
+            "event": {
+                "snippet": {
+                    "type": "superChatEvent",
+                    "superChatDetails": {
+                        "amountDisplayString": "$10.00",
+                        "userComment": "Love the stream.",
+                    },
+                },
+                "authorDetails": {"displayName": "Jordan"},
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["type"] == "super_chat"
+    assert response.json()["amount_display"] == "$10.00"
+    assert response.json()["actor_name"] == "Jordan"

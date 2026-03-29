@@ -15,8 +15,7 @@ from app.preferences import get_selected_model, set_selected_model
 INSTALLER_STATE_FILE = Path(__file__).resolve().parents[1] / "data" / "installer_state.json"
 OPENCLAW_INSTALL_DIR = Path(__file__).resolve().parents[1] / "data" / "openclaw"
 STEP_ORDER: Final[tuple[str, ...]] = (
-    "environment-check",
-    "prepare-prerequisites",
+    "download",
     "install-openclaw",
     "configure-ai",
     "start-connect",
@@ -97,23 +96,17 @@ def _make_step(step_id: str, title: str, description: str, message: str) -> Inst
 
 def _default_steps() -> dict[str, InstallerStepState]:
     return {
-        "environment-check": _make_step(
-            "environment-check",
-            "Environment Check",
-            "Inspect this PC for the tools needed to run the local companion.",
-            "We have not checked this device yet.",
-        ),
-        "prepare-prerequisites": _make_step(
-            "prepare-prerequisites",
-            "Prepare Prerequisites",
-            "Install missing build tools and local model runtime support.",
-            "Waiting for the environment check.",
+        "download": _make_step(
+            "download",
+            "Download",
+            "Prepare the local setup package and required prerequisites for this PC.",
+            "Download has not started yet.",
         ),
         "install-openclaw": _make_step(
             "install-openclaw",
             "Install OpenClaw",
             "Create the local OpenClaw runtime files used by the desktop shell.",
-            "Waiting for prerequisites to be ready.",
+            "Waiting for Download to finish.",
         ),
         "configure-ai": _make_step(
             "configure-ai",
@@ -132,7 +125,7 @@ def _default_steps() -> dict[str, InstallerStepState]:
 
 def create_default_installer_state() -> InstallerStatus:
     return InstallerStatus(
-        current_step="environment-check",
+        current_step="download",
         completed=False,
         environment=_empty_environment(),
         steps=_default_steps(),
@@ -385,20 +378,7 @@ def _set_step(
 
 
 def _promote_default_messages(state: InstallerStatus) -> None:
-    if state["steps"]["environment-check"]["status"] == "complete":
-        if state["environment"]["all_ready"]:
-            _set_step(
-                state,
-                "prepare-prerequisites",
-                "complete",
-                "Everything needed for the local runtime is already available.",
-            )
-        elif state["steps"]["prepare-prerequisites"]["status"] == "pending":
-            state["steps"]["prepare-prerequisites"]["message"] = (
-                "Missing items were found. Companion OS can prepare them next."
-            )
-
-    if state["steps"]["prepare-prerequisites"]["status"] == "complete":
+    if state["steps"]["download"]["status"] == "complete":
         state["steps"]["install-openclaw"]["message"] = (
             "The device is ready. OpenClaw can be installed locally."
         )
@@ -409,19 +389,7 @@ def _promote_default_messages(state: InstallerStatus) -> None:
         )
 
 
-def check_environment() -> dict[str, object]:
-    """Detect local prerequisites required for the desktop shell."""
-
-    with _installer_lock:
-        state = _read_installer_state()
-        _set_step(
-            state,
-            "environment-check",
-            "active",
-            "Inspecting the device for local runtime prerequisites.",
-        )
-        _write_installer_state(state)
-
+def _collect_environment_result() -> EnvironmentCheckResult:
     checks = _environment_checks()
     missing_prerequisites = [
         item["label"]
@@ -433,7 +401,7 @@ def check_environment() -> dict[str, object]:
         for item in checks
         if item["category"] == "runtime" and not item["installed"]
     ]
-    environment = EnvironmentCheckResult(
+    return EnvironmentCheckResult(
         checks=checks,
         node_installed=next(
             item["installed"] for item in checks if item["label"] == "Node.js"
@@ -451,6 +419,22 @@ def check_environment() -> dict[str, object]:
         missing_runtime_dependencies=missing_runtime_dependencies,
         all_ready=not missing_prerequisites and not missing_runtime_dependencies,
     )
+
+
+def check_environment() -> dict[str, object]:
+    """Detect local prerequisites required for the desktop shell."""
+
+    with _installer_lock:
+        state = _read_installer_state()
+        _set_step(
+            state,
+            "download",
+            "active",
+            "Inspecting the device for local runtime prerequisites.",
+        )
+        _write_installer_state(state)
+
+    environment = _collect_environment_result()
     summary = (
         "Everything needed for the local-first install is already available."
         if environment["all_ready"]
@@ -467,7 +451,8 @@ def check_environment() -> dict[str, object]:
     with _installer_lock:
         state = _read_installer_state()
         state["environment"] = environment
-        step = _set_step(state, "environment-check", "complete", summary)
+        next_status: StepStatus = "complete" if environment["all_ready"] else "active"
+        step = _set_step(state, "download", next_status, summary, can_retry=True)
         _promote_default_messages(state)
         _write_installer_state(state)
 
@@ -540,20 +525,20 @@ def _recovery_plan(missing_labels: list[str], *, winget_available: bool) -> list
     return instructions
 
 
-def prepare_prerequisites() -> dict[str, object]:
-    """Attempt to install missing prerequisites silently where possible."""
+def download_setup() -> dict[str, object]:
+    """Run the canonical Download step, including prerequisite detection and setup."""
 
     with _installer_lock:
         state = _read_installer_state()
         _set_step(
             state,
-            "prepare-prerequisites",
+            "download",
             "active",
-            "Preparing local prerequisites for the desktop shell.",
+            "Downloading setup requirements and preparing this PC for OpenClaw.",
         )
         _write_installer_state(state)
 
-    environment = check_environment()["environment"]
+    environment = _collect_environment_result()
     missing_items = (
         environment["missing_prerequisites"] + environment["missing_runtime_dependencies"]
     )
@@ -561,11 +546,12 @@ def prepare_prerequisites() -> dict[str, object]:
     if environment["all_ready"]:
         with _installer_lock:
             state = _read_installer_state()
+            state["environment"] = environment
             step = _set_step(
                 state,
-                "prepare-prerequisites",
+                "download",
                 "complete",
-                "Everything needed for OpenClaw is already in place.",
+                "Download finished. Everything needed for OpenClaw is already in place.",
             )
             _promote_default_messages(state)
             _write_installer_state(state)
@@ -573,7 +559,7 @@ def prepare_prerequisites() -> dict[str, object]:
             "attempted": False,
             "installed": [],
             "remaining": [],
-            "message": "All prerequisites are already installed.",
+            "message": "Download finished. All prerequisites are already installed.",
             "environment": environment,
             "step": step,
         }
@@ -583,11 +569,12 @@ def prepare_prerequisites() -> dict[str, object]:
         instructions = _recovery_plan(missing_items, winget_available=False)
         with _installer_lock:
             state = _read_installer_state()
+            state["environment"] = environment
             step = _set_step(
                 state,
-                "prepare-prerequisites",
+                "download",
                 "needs_action",
-                "Automatic setup needs a quick manual step before it can continue.",
+                "Download is paused until one quick manual step is finished.",
                 error="winget is not available on this device.",
                 recovery_instructions=instructions,
                 can_retry=True,
@@ -598,7 +585,7 @@ def prepare_prerequisites() -> dict[str, object]:
             "attempted": False,
             "installed": [],
             "remaining": missing_items,
-            "message": "Automatic prerequisite installation requires winget on Windows.",
+            "message": "Download needs App Installer before automatic setup can continue.",
             "environment": environment,
             "step": step,
         }
@@ -619,10 +606,10 @@ def prepare_prerequisites() -> dict[str, object]:
             state = _read_installer_state()
             step = _set_step(
                 state,
-                "prepare-prerequisites",
+                "download",
                 "needs_action",
-                "Some items still need attention before OpenClaw can install.",
-                error="Automatic prerequisite setup did not finish every item.",
+                "Download still needs a little manual help before OpenClaw can install.",
+                error="Automatic setup did not finish every required item.",
                 recovery_instructions=instructions,
                 can_retry=True,
                 can_repair=True,
@@ -632,18 +619,19 @@ def prepare_prerequisites() -> dict[str, object]:
             "attempted": True,
             "installed": installed,
             "remaining": remaining_items,
-            "message": "Prerequisite preparation finished with follow-up steps required.",
+            "message": "Download finished with follow-up steps required.",
             "environment": refreshed,
             "step": step,
         }
 
     with _installer_lock:
         state = _read_installer_state()
+        state["environment"] = refreshed
         step = _set_step(
             state,
-            "prepare-prerequisites",
+            "download",
             "complete",
-            "Local prerequisites are ready. OpenClaw can be installed now.",
+            "Download finished. This PC is ready for OpenClaw.",
         )
         _promote_default_messages(state)
         _write_installer_state(state)
@@ -652,10 +640,16 @@ def prepare_prerequisites() -> dict[str, object]:
         "attempted": True,
         "installed": installed,
         "remaining": [],
-        "message": "Prerequisite preparation finished.",
+        "message": "Download finished.",
         "environment": refreshed,
         "step": step,
     }
+
+
+def prepare_prerequisites() -> dict[str, object]:
+    """Compatibility wrapper for the legacy prerequisite route."""
+
+    return download_setup()
 
 
 def get_installer_status() -> InstallerStatus:
@@ -678,7 +672,7 @@ def install_openclaw() -> dict[str, object]:
         )
         _write_installer_state(state)
 
-    environment = check_environment()["environment"]
+    environment = _collect_environment_result()
     if not environment["all_ready"]:
         instructions = _recovery_plan(
             environment["missing_prerequisites"] + environment["missing_runtime_dependencies"],
@@ -686,6 +680,17 @@ def install_openclaw() -> dict[str, object]:
         )
         with _installer_lock:
             state = _read_installer_state()
+            state["environment"] = environment
+            _set_step(
+                state,
+                "download",
+                "needs_action",
+                "Download must finish before OpenClaw can install.",
+                error="The device still needs setup before installation can continue.",
+                recovery_instructions=instructions,
+                can_retry=True,
+                can_repair=True,
+            )
             _set_step(
                 state,
                 "install-openclaw",
@@ -717,6 +722,14 @@ def install_openclaw() -> dict[str, object]:
 
     with _installer_lock:
         state = _read_installer_state()
+        state["environment"] = environment
+        if state["steps"]["download"]["status"] != "complete":
+            _set_step(
+                state,
+                "download",
+                "complete",
+                "Download finished. This PC is ready for OpenClaw.",
+            )
         state["openclaw"] = {
             "installed": True,
             "install_path": str(OPENCLAW_INSTALL_DIR),

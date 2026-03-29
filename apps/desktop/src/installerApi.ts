@@ -6,8 +6,7 @@ export type StepStatus =
   | "needs_action";
 
 export type InstallerStepId =
-  | "environment-check"
-  | "prepare-prerequisites"
+  | "download"
   | "install-openclaw"
   | "configure-ai"
   | "start-connect";
@@ -67,7 +66,7 @@ export type EnvironmentCheckResult = {
   step: InstallerStep;
 };
 
-export type PreparePrerequisitesResult = {
+export type DownloadSetupResult = {
   attempted: boolean;
   installed: string[];
   remaining: string[];
@@ -98,7 +97,8 @@ export type StartConnectResult = {
 export type InstallerApi = {
   getInstallerStatus: () => Promise<InstallerStatus>;
   checkEnvironment: () => Promise<EnvironmentCheckResult>;
-  preparePrerequisites: () => Promise<PreparePrerequisitesResult>;
+  downloadSetup: () => Promise<DownloadSetupResult>;
+  preparePrerequisites: () => Promise<DownloadSetupResult>;
   installOpenClaw: () => Promise<InstallOpenClawResult>;
   getModels: () => Promise<string[]>;
   configureAI: (model: string) => Promise<ConfigureAIResult>;
@@ -126,8 +126,12 @@ export const installerApi: InstallerApi = {
     request<EnvironmentCheckResult>("/api/installer/environment-check", {
       method: "POST",
     }),
+  downloadSetup: () =>
+    request<DownloadSetupResult>("/api/installer/download", {
+      method: "POST",
+    }),
   preparePrerequisites: () =>
-    request<PreparePrerequisitesResult>("/api/installer/prepare-prerequisites", {
+    request<DownloadSetupResult>("/api/installer/prepare-prerequisites", {
       method: "POST",
     }),
   installOpenClaw: () =>

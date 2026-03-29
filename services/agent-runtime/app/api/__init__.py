@@ -1,30 +1,64 @@
-"""API package for Companion OS agent runtime.
+"""API package for Companion OS agent runtime."""
 
-This package exposes REST endpoints used by the desktop app to
-communicate with the agent runtime. Endpoints include routes for
-sending user messages, listing available skills, and requesting
-permissions. Additional endpoints can be added here as the project
-evolves.
-"""
-
+import base64
+import binascii
+from typing import Any
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field, StringConstraints
 
 from app.core.command_router import route_user_message
 from app.installer import (
     check_environment,
     configure_ai,
+    download_setup,
     get_installer_status,
     get_supported_models,
     install_openclaw,
     prepare_prerequisites,
     start_and_connect,
 )
-from app.preferences import get_permission, set_permission
+from app.micro_utilities import capture_clipboard_entry, list_micro_utility_state
+from app.memory_manager import (
+    clear_memory_summaries,
+    clear_pending_memory,
+    delete_memory_summary,
+    list_memory_state,
+    record_chat_turn,
+    update_memory_summary,
+)
+from app.marketplace import (
+    get_marketplace_listing,
+    install_marketplace_listing,
+    list_marketplace_listings,
+)
+from app.personality_packs import (
+    get_pack_manifest_schema,
+    import_tavern_card,
+    install_pack_archive,
+    list_installed_packs,
+    select_active_pack,
+)
+from app.preferences import (
+    get_memory_settings,
+    get_permission,
+    set_permission,
+    update_memory_settings,
+)
 from app.skills.app_launcher import launch_app_skill
 from app.skills.browser_helper import run_browser_helper
+from app.skills.micro_utilities import run_micro_utility
+from app.stream_integration import (
+    clear_recent_stream_events,
+    create_preview_stream_event,
+    get_stream_state,
+    ingest_youtube_event,
+    list_recent_stream_events,
+    process_twitch_webhook,
+    update_stream_settings,
+)
 
 router = APIRouter()
 
@@ -81,6 +115,161 @@ class BrowserHelperResponse(BaseModel):
     message: str
 
 
+class MicroUtilityRequest(BaseModel):
+    """Natural-language micro-utility request payload."""
+
+    request: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        ..., min_length=1
+    )
+
+
+class MicroUtilityResponse(BaseModel):
+    """Structured response returned by the micro-utilities skill."""
+
+    ok: bool
+    action: str
+    request: str
+    message: str
+    metadata: dict[str, object]
+
+
+class UtilityItemResponse(BaseModel):
+    """Stored timer, alarm, reminder, or to-do item."""
+
+    id: int
+    kind: str
+    label: str
+    due_at: str | None
+    completed: bool
+    created_at: str
+
+
+class ClipboardEntryResponse(BaseModel):
+    """One local clipboard history entry."""
+
+    id: int
+    text: str
+    created_at: str
+
+
+class ShortcutResponse(BaseModel):
+    """Saved quick-launch shortcut metadata."""
+
+    id: str
+    label: str
+    kind: str
+    target: str
+
+
+class MicroUtilitiesStateResponse(BaseModel):
+    """Stored non-intrusive utility state for the desktop shell."""
+
+    timers: list[UtilityItemResponse]
+    reminders: list[UtilityItemResponse]
+    todos: list[UtilityItemResponse]
+    clipboard_history: list[ClipboardEntryResponse]
+    shortcuts: list[ShortcutResponse]
+
+
+class ClipboardCaptureRequest(BaseModel):
+    """Clipboard text forwarded from the desktop shell."""
+
+    text: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        ..., min_length=1
+    )
+
+
+class ClipboardCaptureResponse(BaseModel):
+    """Result of storing local clipboard text."""
+
+    id: int
+    text: str
+    created_at: str
+    message: str
+
+
+class StreamReactionPreferencesResponse(BaseModel):
+    """Per-event reaction toggles for stream integrations."""
+
+    new_subscriber: bool
+    donation: bool
+    new_member: bool
+    super_chat: bool
+
+
+class StreamSettingsResponse(BaseModel):
+    """Persisted stream integration and overlay settings."""
+
+    enabled: bool
+    provider: str
+    overlay_enabled: bool
+    click_through_enabled: bool
+    twitch_channel_name: str
+    twitch_webhook_secret: str
+    youtube_live_chat_id: str
+    reaction_preferences: StreamReactionPreferencesResponse
+
+
+class StreamEventResponse(BaseModel):
+    """One recent stream event rendered by the companion."""
+
+    id: int
+    provider: str
+    type: str
+    actor_name: str
+    amount_display: str | None
+    message: str | None
+    bubble_text: str
+    created_at: str
+    should_react: bool
+
+
+class StreamStateResponse(BaseModel):
+    """Settings and recent stream events for the desktop shell."""
+
+    settings: StreamSettingsResponse
+    recent_events: list[StreamEventResponse]
+
+
+class StreamSettingsUpdateRequest(BaseModel):
+    """Partial update for stream integration settings."""
+
+    enabled: bool | None = None
+    provider: Annotated[str, StringConstraints(strip_whitespace=True)] | None = None
+    overlay_enabled: bool | None = None
+    click_through_enabled: bool | None = None
+    twitch_channel_name: (
+        Annotated[str, StringConstraints(strip_whitespace=True)] | None
+    ) = None
+    twitch_webhook_secret: (
+        Annotated[str, StringConstraints(strip_whitespace=True)] | None
+    ) = None
+    youtube_live_chat_id: (
+        Annotated[str, StringConstraints(strip_whitespace=True)] | None
+    ) = None
+    reaction_preferences: dict[str, bool] | None = None
+
+
+class StreamPreviewEventRequest(BaseModel):
+    """Preview one local stream reaction in the desktop shell."""
+
+    type: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        ..., min_length=1
+    )
+
+
+class StreamDeleteResponse(BaseModel):
+    """Response returned after clearing recent stream events."""
+
+    deleted: int
+
+
+class YouTubeStreamEventRequest(BaseModel):
+    """YouTube live message payload forwarded from a local relay."""
+
+    event: dict[str, Any]
+
+
 class PermissionResponse(BaseModel):
     """Response payload for persisted permission state."""
 
@@ -92,6 +281,261 @@ class PermissionUpdateRequest(BaseModel):
     """Request payload for updating persisted permission state."""
 
     granted: bool
+
+
+class MemorySettingsResponse(BaseModel):
+    """Persisted local memory and privacy settings."""
+
+    long_term_memory_enabled: bool
+    summary_frequency_messages: int
+    cloud_backup_enabled: bool
+    storage_mode: str
+
+
+class MemorySettingsUpdateRequest(BaseModel):
+    """Partial update payload for local memory settings."""
+
+    long_term_memory_enabled: bool | None = None
+    summary_frequency_messages: int | None = Field(default=None, ge=1)
+    cloud_backup_enabled: bool | None = None
+
+
+class MemorySummaryResponse(BaseModel):
+    """Stored local conversation summary."""
+
+    id: int
+    title: str
+    summary: str
+    message_count: int
+    created_at: str
+    updated_at: str
+    source: str
+
+
+class MemorySummaryListResponse(BaseModel):
+    """Collection of stored summaries and pending local memory state."""
+
+    summaries: list[MemorySummaryResponse]
+    pending_message_count: int
+
+
+class MemorySummaryUpdateRequest(BaseModel):
+    """Editable summary fields for a stored memory summary."""
+
+    title: Annotated[str, StringConstraints(strip_whitespace=True)] | None = None
+    summary: Annotated[str, StringConstraints(strip_whitespace=True)] | None = None
+
+
+class MemoryDeleteResponse(BaseModel):
+    """Response returned after deleting memory summaries."""
+
+    deleted: int
+
+
+class PackContentRatingResponse(BaseModel):
+    """Simplified content rating returned for an installed pack."""
+
+    minimum_age: int
+    maximum_age: int | None
+    tags: list[str]
+
+
+class PackCapabilityResponse(BaseModel):
+    """Capability declaration surfaced to the desktop shell."""
+
+    id: str
+    justification: str
+
+
+class InstalledPackResponse(BaseModel):
+    """Installed pack metadata used by the settings UI."""
+
+    id: str
+    name: str
+    version: str
+    display_name: str
+    author_name: str
+    license_name: str
+    content_rating: PackContentRatingResponse
+    required_capabilities: list[PackCapabilityResponse]
+    optional_capabilities: list[PackCapabilityResponse]
+    active: bool
+    icon_data_url: str | None
+    installed_at: str | None
+
+
+class PackListResponse(BaseModel):
+    """List of installed packs and the currently active selection."""
+
+    active_pack_id: str | None
+    packs: list[InstalledPackResponse]
+    schema_version: str
+
+
+class PackSchemaResponse(BaseModel):
+    """JSON schema returned for pack.json."""
+
+    pack_schema: dict[str, object] = Field(alias="schema")
+
+
+class PackInstallRequest(BaseModel):
+    """Base64-encoded zip payload used for pack import."""
+
+    filename: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        ..., min_length=1
+    )
+    archive_base64: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        ..., min_length=1
+    )
+
+
+class PackInstallResponse(BaseModel):
+    """Result of installing a new pack archive."""
+
+    active_pack_id: str | None
+    pack: InstalledPackResponse
+
+
+class PackSelectionRequest(BaseModel):
+    """Request payload for choosing the active pack."""
+
+    pack_id: Annotated[str, StringConstraints(strip_whitespace=True, to_lower=True)] = (
+        Field(..., min_length=1)
+    )
+
+
+class PackSelectionResponse(BaseModel):
+    """Response returned after selecting an active pack."""
+
+    active_pack_id: str
+    pack: InstalledPackResponse
+
+
+class TavernImportRequest(BaseModel):
+    """Base64-encoded Tavern Card PNG payload."""
+
+    filename: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        ..., min_length=1
+    )
+    image_base64: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        ..., min_length=1
+    )
+
+
+class MarketplacePublisherResponse(BaseModel):
+    """Publisher information shown for one marketplace listing."""
+
+    id: str
+    name: str
+    website: str | None
+    signature_key_id: str
+
+
+class MarketplacePriceResponse(BaseModel):
+    """Price summary for a marketplace listing."""
+
+    is_free: bool
+    amount: float | None
+    currency: str | None
+    label: str
+
+
+class MarketplaceRevenueShareResponse(BaseModel):
+    """Revenue split shown for creator marketplace content."""
+
+    creator_percent: int
+    platform_percent: int
+    payment_processor_percent: int
+
+
+class MarketplaceAutomatedScanResponse(BaseModel):
+    """Automated moderation or security scan status."""
+
+    id: str
+    label: str
+    status: str
+    summary: str
+
+
+class MarketplaceManualReviewResponse(BaseModel):
+    """Manual review status for a marketplace listing."""
+
+    status: str
+    reviewer: str
+    reviewed_at: str
+    notes: str
+
+
+class MarketplaceModerationResponse(BaseModel):
+    """Moderation workflow state returned to the desktop shell."""
+
+    automated_scans: list[MarketplaceAutomatedScanResponse]
+    manual_review: MarketplaceManualReviewResponse
+    install_allowed: bool
+
+
+class MarketplaceLicenseResponse(BaseModel):
+    """License declaration shown in the marketplace."""
+
+    name: str
+    spdx_identifier: str | None
+    url: str | None
+
+
+class MarketplaceIPDeclarationResponse(BaseModel):
+    """Rights declaration required for curated personality packs."""
+
+    rights_confirmed: bool
+    asset_sources: list[str]
+    notes: str
+
+
+class MarketplacePublisherSignatureResponse(BaseModel):
+    """Signed publisher metadata surfaced for trust and review."""
+
+    algorithm: str
+    key_id: str
+    public_key: dict[str, str]
+    value: str
+
+
+class MarketplaceListingResponse(BaseModel):
+    """Marketplace listing metadata for packs and skills."""
+
+    schema_version: str
+    id: str
+    kind: str
+    name: str
+    description: str
+    version: str
+    publisher: MarketplacePublisherResponse
+    license: MarketplaceLicenseResponse
+    required_capabilities: list[PackCapabilityResponse]
+    optional_capabilities: list[PackCapabilityResponse]
+    price: MarketplacePriceResponse
+    revenue_share: MarketplaceRevenueShareResponse
+    moderation: MarketplaceModerationResponse
+    publisher_signature: MarketplacePublisherSignatureResponse
+    content_rating: PackContentRatingResponse | None
+    ip_declaration: MarketplaceIPDeclarationResponse | None
+    install_supported: bool
+    core_feature: bool
+    icon_data_url: str | None
+
+
+class MarketplaceListResponse(BaseModel):
+    """Collection of curated marketplace listings."""
+
+    schema_version: str
+    listings: list[MarketplaceListingResponse]
+
+
+class MarketplaceInstallResponse(BaseModel):
+    """Result of installing a curated marketplace personality pack."""
+
+    listing: MarketplaceListingResponse
+    active_pack_id: str | None
+    pack: InstalledPackResponse
 
 
 class InstallerStatusResponse(BaseModel):
@@ -113,8 +557,8 @@ class InstallerEnvironmentResponse(BaseModel):
     step: dict[str, object]
 
 
-class PreparePrerequisitesResponse(BaseModel):
-    """Result of prerequisite preparation."""
+class DownloadSetupResponse(BaseModel):
+    """Result of the canonical Download step."""
 
     attempted: bool
     installed: list[str]
@@ -157,6 +601,26 @@ class StartConnectResponse(BaseModel):
     step: dict[str, object]
 
 
+def _decode_base64_payload(raw_payload: str, *, label: str) -> bytes:
+    try:
+        return base64.b64decode(raw_payload, validate=True)
+    except (ValueError, binascii.Error) as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{label} must be valid base64 data.",
+        ) from error
+
+
+def _memory_settings_payload() -> MemorySettingsResponse:
+    settings = get_memory_settings()
+    return MemorySettingsResponse(
+        long_term_memory_enabled=bool(settings["long_term_memory_enabled"]),
+        summary_frequency_messages=int(settings["summary_frequency_messages"]),
+        cloud_backup_enabled=bool(settings["cloud_backup_enabled"]),
+        storage_mode="local-only",
+    )
+
+
 @router.get("/health")
 async def health_check() -> dict[str, str]:
     """Simple health check endpoint.
@@ -171,6 +635,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
     """Route a message into MVP chat or a first-party action skill."""
 
     result = route_user_message(request.message)
+    record_chat_turn(request.message, result.assistant_response)
     return ChatResponse(
         ok=result.ok,
         route=result.route,
@@ -192,19 +657,29 @@ async def installer_status() -> InstallerStatusResponse:
     response_model=InstallerEnvironmentResponse,
 )
 async def installer_environment_check() -> InstallerEnvironmentResponse:
-    """Detect environment prerequisites for the local desktop shell."""
+    """Legacy environment inspection route for installer diagnostics."""
 
     return InstallerEnvironmentResponse(**check_environment())
 
 
 @router.post(
-    "/installer/prepare-prerequisites",
-    response_model=PreparePrerequisitesResponse,
+    "/installer/download",
+    response_model=DownloadSetupResponse,
 )
-async def installer_prepare_prerequisites() -> PreparePrerequisitesResponse:
-    """Attempt to install missing prerequisites silently where possible."""
+async def installer_download() -> DownloadSetupResponse:
+    """Run the canonical Download step for the local-first setup flow."""
 
-    return PreparePrerequisitesResponse(**prepare_prerequisites())
+    return DownloadSetupResponse(**download_setup())
+
+
+@router.post(
+    "/installer/prepare-prerequisites",
+    response_model=DownloadSetupResponse,
+)
+async def installer_prepare_prerequisites() -> DownloadSetupResponse:
+    """Legacy prerequisite route kept as a compatibility shim."""
+
+    return DownloadSetupResponse(**prepare_prerequisites())
 
 
 @router.post("/installer/install-openclaw", response_model=InstallOpenClawResponse)
@@ -242,6 +717,193 @@ async def installer_start_connect() -> StartConnectResponse:
         return StartConnectResponse(**start_and_connect())
     except RuntimeError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.get("/memory/settings", response_model=MemorySettingsResponse)
+async def get_memory_preferences() -> MemorySettingsResponse:
+    """Return persisted local memory and privacy settings."""
+
+    return _memory_settings_payload()
+
+
+@router.put("/memory/settings", response_model=MemorySettingsResponse)
+async def update_memory_preferences(
+    request: MemorySettingsUpdateRequest,
+) -> MemorySettingsResponse:
+    """Persist local memory and privacy settings."""
+
+    try:
+        settings = update_memory_settings(
+            long_term_memory_enabled=request.long_term_memory_enabled,
+            summary_frequency_messages=request.summary_frequency_messages,
+            cloud_backup_enabled=request.cloud_backup_enabled,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    if request.long_term_memory_enabled is False:
+        clear_pending_memory()
+
+    return MemorySettingsResponse(
+        long_term_memory_enabled=bool(settings["long_term_memory_enabled"]),
+        summary_frequency_messages=int(settings["summary_frequency_messages"]),
+        cloud_backup_enabled=bool(settings["cloud_backup_enabled"]),
+        storage_mode="local-only",
+    )
+
+
+@router.get("/memory/summaries", response_model=MemorySummaryListResponse)
+async def get_memory_summaries() -> MemorySummaryListResponse:
+    """Return stored long-term memory summaries."""
+
+    return MemorySummaryListResponse(**list_memory_state())
+
+
+@router.put(
+    "/memory/summaries/{summary_id}",
+    response_model=MemorySummaryResponse,
+)
+async def edit_memory_summary(
+    summary_id: int,
+    request: MemorySummaryUpdateRequest,
+) -> MemorySummaryResponse:
+    """Update one stored memory summary."""
+
+    try:
+        return MemorySummaryResponse(
+            **update_memory_summary(
+                summary_id,
+                title=request.title,
+                summary=request.summary,
+            )
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.delete(
+    "/memory/summaries/{summary_id}",
+    response_model=MemoryDeleteResponse,
+)
+async def remove_memory_summary(summary_id: int) -> MemoryDeleteResponse:
+    """Delete one stored memory summary."""
+
+    try:
+        return MemoryDeleteResponse(deleted=delete_memory_summary(summary_id))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.delete("/memory/summaries", response_model=MemoryDeleteResponse)
+async def remove_all_memory_summaries() -> MemoryDeleteResponse:
+    """Delete all stored memory summaries and pending local memory."""
+
+    return MemoryDeleteResponse(deleted=clear_memory_summaries())
+
+
+@router.get("/packs", response_model=PackListResponse)
+async def get_packs() -> PackListResponse:
+    """Return installed personality packs and the active selection."""
+
+    return PackListResponse(**list_installed_packs())
+
+
+@router.get("/packs/schema", response_model=PackSchemaResponse)
+async def get_pack_schema() -> PackSchemaResponse:
+    """Return the JSON schema for pack.json."""
+
+    return PackSchemaResponse(schema=get_pack_manifest_schema())
+
+
+@router.post("/packs/install", response_model=PackInstallResponse)
+async def install_pack(request: PackInstallRequest) -> PackInstallResponse:
+    """Install a zipped personality pack uploaded by the desktop shell."""
+
+    archive_bytes = _decode_base64_payload(
+        request.archive_base64,
+        label="archive_base64",
+    )
+
+    try:
+        return PackInstallResponse(
+            **install_pack_archive(
+                filename=request.filename,
+                archive_bytes=archive_bytes,
+            )
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.put("/packs/active", response_model=PackSelectionResponse)
+async def update_active_pack(
+    request: PackSelectionRequest,
+) -> PackSelectionResponse:
+    """Persist the selected active personality pack."""
+
+    try:
+        return PackSelectionResponse(**select_active_pack(request.pack_id))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post("/packs/import-tavern-card", response_model=PackInstallResponse)
+async def import_tavern_pack(
+    request: TavernImportRequest,
+) -> PackInstallResponse:
+    """Convert a Tavern Card PNG into an installed pack."""
+
+    image_bytes = _decode_base64_payload(
+        request.image_base64,
+        label="image_base64",
+    )
+
+    try:
+        return PackInstallResponse(
+            **import_tavern_card(
+                filename=request.filename,
+                image_bytes=image_bytes,
+            )
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.get("/marketplace/listings", response_model=MarketplaceListResponse)
+async def get_marketplace_listings() -> MarketplaceListResponse:
+    """Return the curated marketplace catalog for packs and skills."""
+
+    return MarketplaceListResponse(**list_marketplace_listings())
+
+
+@router.get(
+    "/marketplace/listings/{listing_id}",
+    response_model=MarketplaceListingResponse,
+)
+async def get_marketplace_listing_by_id(
+    listing_id: str,
+) -> MarketplaceListingResponse:
+    """Return one curated marketplace listing."""
+
+    try:
+        return MarketplaceListingResponse(**get_marketplace_listing(listing_id))
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.post(
+    "/marketplace/listings/{listing_id}/install",
+    response_model=MarketplaceInstallResponse,
+)
+async def install_marketplace_pack(listing_id: str) -> MarketplaceInstallResponse:
+    """Install one approved free personality pack from the curated marketplace."""
+
+    try:
+        return MarketplaceInstallResponse(**install_marketplace_listing(listing_id))
+    except ValueError as error:
+        detail = str(error)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from error
 
 
 @router.get(
@@ -292,6 +954,127 @@ async def update_open_url_permission(
     return PermissionResponse(permission="open_url", granted=granted)
 
 
+@router.get("/utilities/state", response_model=MicroUtilitiesStateResponse)
+async def get_micro_utilities_state() -> MicroUtilitiesStateResponse:
+    """Return stored timers, reminders, notes, clipboard history, and shortcuts."""
+
+    return MicroUtilitiesStateResponse(**list_micro_utility_state())
+
+
+@router.post(
+    "/utilities/clipboard/capture",
+    response_model=ClipboardCaptureResponse,
+)
+async def capture_clipboard(
+    request: ClipboardCaptureRequest,
+) -> ClipboardCaptureResponse:
+    """Store clipboard text locally after the desktop shell reads it."""
+
+    try:
+        entry = capture_clipboard_entry(request.text)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return ClipboardCaptureResponse(
+        id=entry["id"],
+        text=entry["text"],
+        created_at=entry["created_at"],
+        message="I saved that clipboard text into your local history.",
+    )
+
+
+@router.get("/stream/state", response_model=StreamStateResponse)
+async def get_stream_integration_state() -> StreamStateResponse:
+    """Return persisted stream settings and recent events."""
+
+    return StreamStateResponse(**get_stream_state())
+
+
+@router.get("/stream/events", response_model=list[StreamEventResponse])
+async def get_recent_stream_events() -> list[StreamEventResponse]:
+    """Return recent stream events for polling."""
+
+    return [StreamEventResponse(**event) for event in list_recent_stream_events()]
+
+
+@router.put("/stream/settings", response_model=StreamSettingsResponse)
+async def save_stream_settings(
+    request: StreamSettingsUpdateRequest,
+) -> StreamSettingsResponse:
+    """Persist stream integration settings and overlay preferences."""
+
+    try:
+        settings = update_stream_settings(
+            enabled=request.enabled,
+            provider=request.provider,
+            overlay_enabled=request.overlay_enabled,
+            click_through_enabled=request.click_through_enabled,
+            twitch_channel_name=request.twitch_channel_name,
+            twitch_webhook_secret=request.twitch_webhook_secret,
+            youtube_live_chat_id=request.youtube_live_chat_id,
+            reaction_preferences=request.reaction_preferences,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return StreamSettingsResponse(**settings)
+
+
+@router.delete("/stream/events", response_model=StreamDeleteResponse)
+async def delete_recent_stream_events() -> StreamDeleteResponse:
+    """Clear the recent local stream event history."""
+
+    return StreamDeleteResponse(deleted=clear_recent_stream_events())
+
+
+@router.post("/stream/events/preview", response_model=StreamEventResponse)
+async def preview_stream_event(
+    request: StreamPreviewEventRequest,
+) -> StreamEventResponse:
+    """Create a preview event for tuning overlay reactions."""
+
+    try:
+        event = create_preview_stream_event(request.type)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return StreamEventResponse(**event)
+
+
+@router.post("/stream/webhooks/twitch", response_model=None)
+async def twitch_webhook(request: Request) -> PlainTextResponse | StreamEventResponse:
+    """Handle Twitch EventSub webhook challenges and supported notifications."""
+
+    raw_body = await request.body()
+    headers = {key.lower(): value for key, value in request.headers.items()}
+
+    try:
+        result = process_twitch_webhook(headers=headers, raw_body=raw_body)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    if result["kind"] == "challenge":
+        return PlainTextResponse(result["challenge"])
+    if result["kind"] == "ignored":
+        return PlainTextResponse(result.get("reason", "ignored"))
+
+    return StreamEventResponse(**result["event"])
+
+
+@router.post("/stream/events/youtube", response_model=StreamEventResponse)
+async def youtube_stream_event(
+    request: YouTubeStreamEventRequest,
+) -> StreamEventResponse:
+    """Ingest a YouTube live event from a local relay or polling worker."""
+
+    try:
+        event = ingest_youtube_event(request.event)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return StreamEventResponse(**event)
+
+
 @router.post("/skills/open-app", response_model=OpenAppResponse)
 async def open_app(request: OpenAppRequest) -> OpenAppResponse:
     """Launch a supported desktop app after frontend confirmation."""
@@ -330,3 +1113,15 @@ async def browser_helper(request: BrowserHelperRequest) -> BrowserHelperResponse
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return BrowserHelperResponse(**result)
+
+
+@router.post("/skills/micro-utilities", response_model=MicroUtilityResponse)
+async def micro_utilities(request: MicroUtilityRequest) -> MicroUtilityResponse:
+    """Run a first-party timer, reminder, to-do, clipboard, or shortcut action."""
+
+    try:
+        result = run_micro_utility(request.request)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return MicroUtilityResponse(**result)

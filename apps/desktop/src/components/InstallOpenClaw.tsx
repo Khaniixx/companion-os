@@ -15,8 +15,7 @@ type InstallOpenClawProps = {
 };
 
 const STEP_SEQUENCE: InstallerStepId[] = [
-  "environment-check",
-  "prepare-prerequisites",
+  "download",
   "install-openclaw",
   "configure-ai",
   "start-connect",
@@ -26,15 +25,10 @@ const STEP_COPY: Record<
   InstallerStepId,
   { running: string; retry: string; button: string }
 > = {
-  "environment-check": {
-    running: "Checking this device for local runtime requirements.",
-    retry: "Run environment check again",
-    button: "Check environment again",
-  },
-  "prepare-prerequisites": {
-    running: "Preparing local prerequisites for the OpenClaw setup.",
-    retry: "Retry prerequisite setup",
-    button: "Retry setup",
+  download: {
+    running: "Downloading setup requirements and preparing this PC for OpenClaw.",
+    retry: "Retry download",
+    button: "Retry download",
   },
   "install-openclaw": {
     running: "Installing OpenClaw locally.",
@@ -153,10 +147,8 @@ export function InstallOpenClaw({
       setStatusMessage(STEP_COPY[stepId].running);
 
       try {
-        if (stepId === "environment-check") {
-          await installerApi.checkEnvironment();
-        } else if (stepId === "prepare-prerequisites") {
-          await installerApi.preparePrerequisites();
+        if (stepId === "download") {
+          await installerApi.downloadSetup();
         } else if (stepId === "install-openclaw") {
           await installerApi.installOpenClaw();
         } else if (stepId === "start-connect") {
@@ -253,22 +245,16 @@ export function InstallOpenClaw({
       return;
     }
 
-    const envStep = installerStatus.steps["environment-check"];
-    const prepareStep = installerStatus.steps["prepare-prerequisites"];
+    const downloadStep = installerStatus.steps.download;
     const installStep = installerStatus.steps["install-openclaw"];
     const configureStep = installerStatus.steps["configure-ai"];
     const startStep = installerStatus.steps["start-connect"];
 
     let nextStep: InstallerStepId | null = null;
-    if (envStep.status === "pending" || envStep.status === "active") {
-      nextStep = "environment-check";
+    if (downloadStep.status === "pending" || downloadStep.status === "active") {
+      nextStep = "download";
     } else if (
-      envStep.status === "complete" &&
-      (prepareStep.status === "pending" || prepareStep.status === "active")
-    ) {
-      nextStep = "prepare-prerequisites";
-    } else if (
-      prepareStep.status === "complete" &&
+      downloadStep.status === "complete" &&
       (installStep.status === "pending" || installStep.status === "active")
     ) {
       nextStep = "install-openclaw";
@@ -336,9 +322,10 @@ export function InstallOpenClaw({
           <span className="eyebrow">OpenClaw Setup</span>
           <h1>Bring the companion online with a local-first install.</h1>
           <p>
-            Companion OS handles the first run in five clear steps: environment
-            check, prerequisite prep, OpenClaw install, local AI configuration,
-            then start and connect. Core features stay local-first by default.
+            Companion OS follows four clear steps: Download, Install OpenClaw,
+            Configure AI, then Start & Connect. The download stage checks this
+            PC, prepares prerequisites where it is safe, and keeps the default
+            path local-first.
           </p>
         </div>
 

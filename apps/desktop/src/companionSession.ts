@@ -1,4 +1,4 @@
-import type { CompanionState } from "./components/CompanionAvatar";
+import type { CompanionState } from "./companionStateMachine";
 
 export type CompanionMessage = {
   id: number;
@@ -15,7 +15,14 @@ const STORAGE_KEY = "companion-os.session";
 const MAX_MESSAGES = 24;
 
 function isCompanionState(value: string): value is CompanionState {
-  return ["idle", "listening", "thinking", "talking", "error"].includes(value);
+  return [
+    "idle",
+    "listening",
+    "thinking",
+    "talking",
+    "reaction",
+    "error",
+  ].includes(value);
 }
 
 export function loadCompanionSession(
