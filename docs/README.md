@@ -11,6 +11,10 @@ core product rule: one persistent companion, multiple states, no separate modes.
 - [Stream Integration API](./api/stream-integration.md)
 - [Curated Marketplace API](./api/marketplace.md)
 
+## Platform Notes
+
+- [Desktop Linux Notes](./desktop-linux.md)
+
 ## Testing Expectations
 
 - Backend runtime work should be covered with `pytest` and `fastapi.testclient`.
