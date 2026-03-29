@@ -266,6 +266,71 @@ describe("InstallOpenClaw", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows active Ollama progress while the automatic download step is still running", async () => {
+    const status = createStatus({
+      current_step: "download",
+      environment: {
+        ...createStatus().environment,
+        checks: [
+          {
+            id: "ollama",
+            label: "Ollama",
+            category: "runtime",
+            installed: false,
+            version: null,
+            guidance: [
+              "Companion OS can use the official Ollama Windows installer automatically.",
+            ],
+            approx_size_mb: 1500,
+            can_auto_install: true,
+          },
+        ],
+        node_installed: true,
+        rust_installed: true,
+        cpp_toolchain_installed: true,
+        runtime_dependencies_ready: false,
+        missing_prerequisites: [],
+        missing_runtime_dependencies: ["Ollama"],
+        all_ready: false,
+      },
+    });
+    const installerApi: InstallerApi = {
+      getInstallerStatus: vi.fn(async () => structuredClone(status)),
+      getModels: vi.fn(async () => ["llama3.1:8b-instruct"]),
+      downloadSetup: vi.fn(async () => new Promise<void>(() => {})),
+      preparePrerequisites: vi.fn(async () => {
+        throw new Error("unused");
+      }),
+      installOpenClaw: vi.fn(async () => {
+        throw new Error("unused");
+      }),
+      configureAI: vi.fn(async () => {
+        throw new Error("unused");
+      }),
+      startAndConnect: vi.fn(async () => {
+        throw new Error("unused");
+      }),
+      repair: vi.fn(async () => {
+        throw new Error("unused");
+      }),
+    };
+
+    render(<InstallOpenClaw installerApi={installerApi} onComplete={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(installerApi.downloadSetup).toHaveBeenCalled();
+    });
+
+    expect(screen.getByText("Preparing your local AI")).toBeInTheDocument();
+    expect(
+      screen.getAllByText(
+        /Preparing Ollama on this PC so the companion can run locally/i,
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText("13%")).toBeInTheDocument();
+    expect(screen.getAllByText("in progress").length).toBeGreaterThan(0);
+  });
+
   it("shows retry and repair actions with non-technical guidance for a failed download", async () => {
     const installerApi = createInstallerApiMock((status) => {
       status.current_step = "download";

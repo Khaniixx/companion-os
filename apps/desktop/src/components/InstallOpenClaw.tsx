@@ -37,8 +37,48 @@ function getCurrentStep(
   return installerStatus.steps[installerStatus.current_step as InstallerStepId] ?? null;
 }
 
-function getProgressLabel(status: InstallerStatus | null): string {
-  const currentStep = getCurrentStep(status);
+function getInFlightStepMessage(
+  stepId: InstallerStepId,
+  status: InstallerStatus | null,
+): string {
+  if (stepId === "download") {
+    const missingPrerequisites = status?.environment.missing_prerequisites ?? [];
+    const missingRuntimeDependencies =
+      status?.environment.missing_runtime_dependencies ?? [];
+
+    if (
+      missingPrerequisites.length === 0 &&
+      missingRuntimeDependencies.length === 1 &&
+      missingRuntimeDependencies[0] === "Ollama"
+    ) {
+      return "Preparing Ollama on this PC so the companion can run locally.";
+    }
+
+    if (missingPrerequisites.length + missingRuntimeDependencies.length > 0) {
+      return "Checking what this PC still needs and continuing setup.";
+    }
+
+    return "Checking your system and continuing setup.";
+  }
+
+  if (stepId === "install-openclaw") {
+    return "Preparing the local OpenClaw files.";
+  }
+
+  if (stepId === "configure-ai") {
+    return "Saving your default local model.";
+  }
+
+  return "Starting the local runtime and waking the companion.";
+}
+
+function getProgressLabel(
+  status: InstallerStatus | null,
+  activeStepId: InstallerStepId | null,
+): string {
+  const currentStep = activeStepId
+    ? status?.steps[activeStepId] ?? null
+    : getCurrentStep(status);
 
   if (!status || !currentStep) {
     return "Preparing your local OpenClaw setup";
@@ -52,7 +92,14 @@ function getProgressLabel(status: InstallerStatus | null): string {
     const missingCount =
       status.environment.missing_prerequisites.length +
       status.environment.missing_runtime_dependencies.length;
-    return missingCount > 0 ? "Installing dependencies" : "Checking your system";
+    if (
+      status.environment.missing_prerequisites.length === 0 &&
+      status.environment.missing_runtime_dependencies.length === 1 &&
+      status.environment.missing_runtime_dependencies[0] === "Ollama"
+    ) {
+      return "Preparing your local AI";
+    }
+    return missingCount > 0 ? "Preparing this PC" : "Checking your system";
   }
 
   if (currentStep.id === "install-openclaw") {
@@ -137,6 +184,7 @@ export function InstallOpenClaw({
   const [statusMessage, setStatusMessage] = useState(
     "Preparing a local-first OpenClaw setup.",
   );
+  const [activeStepId, setActiveStepId] = useState<InstallerStepId | null>(null);
   const [isBusy, setIsBusy] = useState(true);
   const [isHydrated, setIsHydrated] = useState(false);
   const autoAdvanceRef = useRef(false);
@@ -148,11 +196,23 @@ export function InstallOpenClaw({
       return 0;
     }
 
+    if (installerStatus.connection.connected) {
+      return 100;
+    }
+
     const completeCount = STEP_SEQUENCE.filter(
       (stepId) => installerStatus.steps[stepId].status === "complete",
     ).length;
+    if (activeStepId) {
+      const activeIndex = STEP_SEQUENCE.indexOf(activeStepId);
+      if (activeIndex >= 0) {
+        return Math.round(
+          ((activeIndex + 0.5) / STEP_SEQUENCE.length) * 100,
+        );
+      }
+    }
     return Math.round((completeCount / STEP_SEQUENCE.length) * 100);
-  }, [installerStatus]);
+  }, [activeStepId, installerStatus]);
 
   const refreshStatus = useCallback(async (): Promise<InstallerStatus> => {
     const [nextStatus, availableModels] = await Promise.all([
@@ -181,7 +241,8 @@ export function InstallOpenClaw({
   const runStep = useCallback(
     async (stepId: InstallerStepId): Promise<InstallerStatus | null> => {
       setIsBusy(true);
-      setStatusMessage("Saving your progress and continuing setup.");
+      setActiveStepId(stepId);
+      setStatusMessage(getInFlightStepMessage(stepId, installerStatus));
 
       try {
         if (stepId === "download") {
@@ -208,11 +269,12 @@ export function InstallOpenClaw({
           );
         }
       } finally {
+        setActiveStepId(null);
         setIsBusy(false);
         setIsHydrated(true);
       }
     },
-    [installerApi, onComplete, refreshStatus, selectedModel],
+    [installerApi, installerStatus, onComplete, refreshStatus, selectedModel],
   );
 
   const handleRepair = useCallback(async (): Promise<void> => {
@@ -223,6 +285,7 @@ export function InstallOpenClaw({
       const result = await installerApi.repair();
       setInstallerStatus(result.status);
       setStatusMessage(result.message);
+      setActiveStepId(null);
       if (result.status.connection.connected) {
         onComplete();
       }
@@ -327,7 +390,7 @@ export function InstallOpenClaw({
   }
 
   const dependencyChecks = installerStatus.environment.checks;
-  const progressLabel = getProgressLabel(installerStatus);
+  const progressLabel = getProgressLabel(installerStatus, activeStepId);
   const recoveryInstructions = currentStep?.recovery_instructions ?? [];
   const canConfigureModel =
     installerStatus.openclaw.installed &&
@@ -376,9 +439,16 @@ export function InstallOpenClaw({
         <div className="installer-steps" aria-label="Installer steps">
           {STEP_SEQUENCE.map((stepId, index) => {
             const step = installerStatus.steps[stepId];
+            const renderedStatus =
+              activeStepId === step.id &&
+              (step.status === "pending" || step.status === "active")
+                ? "active"
+                : step.status;
+            const renderedMessage =
+              activeStepId === step.id ? statusMessage : step.message;
             return (
               <article
-                className={`installer-step installer-step--${step.status}`}
+                className={`installer-step installer-step--${renderedStatus}`}
                 key={step.id}
               >
                 <div className="installer-step__index">{index + 1}</div>
@@ -386,13 +456,13 @@ export function InstallOpenClaw({
                   <div className="installer-step__header">
                     <h2>{step.title}</h2>
                     <span
-                      className={`installer-step__badge installer-step__badge--${step.status}`}
+                      className={`installer-step__badge installer-step__badge--${renderedStatus}`}
                     >
-                      {getBadgeLabel(step.status)}
+                      {getBadgeLabel(renderedStatus)}
                     </span>
                   </div>
                   <p>{step.description}</p>
-                  <p className="installer-step__message">{step.message}</p>
+                  <p className="installer-step__message">{renderedMessage}</p>
                 </div>
               </article>
             );
@@ -429,7 +499,9 @@ export function InstallOpenClaw({
             <span className="eyebrow">Guidance</span>
             <h2>What happens next</h2>
             <p className="installer-panel__hint">
-              {currentStep?.message ?? "The installer is loading."}
+              {activeStepId
+                ? statusMessage
+                : currentStep?.message ?? "The installer is loading."}
             </p>
             {recoveryInstructions.length ? (
               <ol className="installer-recovery-list">
