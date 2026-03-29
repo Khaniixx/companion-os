@@ -56,6 +56,303 @@ textarea {
   align-items: center;
 }
 
+.installer-stage {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 18px 0 36px;
+  display: grid;
+  justify-items: center;
+  text-align: center;
+}
+
+.installer-stage--loading {
+  gap: 14px;
+}
+
+.installer-emblem {
+  position: relative;
+  width: 94px;
+  height: 94px;
+  display: grid;
+  place-items: center;
+}
+
+.installer-emblem__ring,
+.installer-emblem__core {
+  position: absolute;
+  border-radius: 50%;
+}
+
+.installer-emblem__ring {
+  inset: 0;
+  background:
+    conic-gradient(
+      from 215deg,
+      rgba(132, 236, 214, 0.1),
+      rgba(145, 178, 255, 0.75),
+      rgba(132, 236, 214, 0.22),
+      rgba(255, 255, 255, 0.06),
+      rgba(132, 236, 214, 0.1)
+    );
+  -webkit-mask: radial-gradient(circle, transparent 57%, black 59%);
+  mask: radial-gradient(circle, transparent 57%, black 59%);
+  animation: breathe 5s ease-in-out infinite;
+}
+
+.installer-emblem__core {
+  inset: 18px;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95), rgba(217, 229, 245, 0.9)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent);
+  box-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.22),
+    inset 0 -12px 18px rgba(120, 151, 196, 0.26);
+}
+
+.installer-emblem__core::before,
+.installer-emblem__core::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  background: rgba(8, 18, 32, 0.92);
+}
+
+.installer-emblem__core::before {
+  top: 16px;
+  left: 50%;
+  width: 24px;
+  height: 24px;
+  transform: translateX(-50%);
+}
+
+.installer-emblem__core::after {
+  bottom: 18px;
+  left: 50%;
+  width: 32px;
+  height: 10px;
+  transform: translateX(-50%);
+}
+
+.installer-stage h1 {
+  margin: 10px 0 0;
+  max-width: 10ch;
+  font-family: "Bahnschrift", "Segoe UI Variable Display", sans-serif;
+  font-size: clamp(2.8rem, 5vw, 4.9rem);
+  line-height: 0.94;
+}
+
+.installer-copy__lead {
+  margin: 18px 0 0;
+  max-width: 43ch;
+  color: rgba(233, 241, 252, 0.84);
+  line-height: 1.65;
+}
+
+.installer-stage__reassurance {
+  margin: 10px 0 0;
+  color: rgba(179, 198, 224, 0.82);
+}
+
+.installer-progress-card--stage {
+  margin-top: 28px;
+  width: min(100%, 340px);
+  text-align: left;
+}
+
+.installer-timeline {
+  width: min(100%, 520px);
+  margin: 28px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.installer-timeline__item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 8px 0;
+  color: rgba(188, 204, 227, 0.68);
+}
+
+.installer-timeline__item--active {
+  color: #f2f7ff;
+}
+
+.installer-timeline__item--complete {
+  color: rgba(212, 244, 227, 0.84);
+}
+
+.installer-timeline__item--failed,
+.installer-timeline__item--needs_action {
+  color: #ffd8c6;
+}
+
+.installer-timeline__marker {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  border: 1px solid rgba(168, 187, 214, 0.32);
+  color: rgba(231, 240, 250, 0.74);
+}
+
+.installer-timeline__marker--pending {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.installer-timeline__marker--complete {
+  border-color: rgba(132, 236, 214, 0.58);
+  background: rgba(132, 236, 214, 0.14);
+  color: #bdf9eb;
+}
+
+.installer-timeline__marker--active::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 2px solid rgba(145, 178, 255, 0.16);
+  border-top-color: #ffffff;
+  animation: spin 1s linear infinite;
+}
+
+.installer-timeline__marker--active::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #84ecd6, #a2b8ff);
+}
+
+.installer-timeline__marker--failed,
+.installer-timeline__marker--needs_action {
+  border-color: rgba(255, 208, 141, 0.54);
+  background: rgba(255, 208, 141, 0.1);
+  color: #fff0bf;
+}
+
+.installer-timeline__copy {
+  text-align: left;
+}
+
+.installer-timeline__copy strong {
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.installer-timeline__copy p {
+  margin: 7px 0 0;
+  color: rgba(225, 236, 250, 0.76);
+  line-height: 1.5;
+}
+
+.installer-timeline__meta {
+  font-size: 0.84rem;
+  color: rgba(179, 198, 224, 0.72);
+}
+
+.installer-timeline__meta--active {
+  color: #f7fbff;
+}
+
+.installer-timeline__meta--complete {
+  color: #bdf9eb;
+}
+
+.installer-timeline__meta--failed,
+.installer-timeline__meta--needs_action {
+  color: #ffe2d4;
+}
+
+.installer-support-grid {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 400px);
+  gap: 24px;
+  align-items: start;
+}
+
+.installer-support-column,
+.installer-sidebar {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.installer-panel {
+  padding: 24px 26px;
+  border-radius: 28px;
+  background:
+    linear-gradient(180deg, rgba(10, 23, 39, 0.88), rgba(7, 16, 28, 0.9)),
+    rgba(8, 18, 32, 0.84);
+  border: 1px solid rgba(158, 189, 223, 0.1);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(18px);
+}
+
+.installer-panel h2 {
+  font-size: 1.22rem;
+}
+
+.installer-panel__actions {
+  display: grid;
+  gap: 12px;
+}
+
+.installer-panel__actions .installer-secondary-button {
+  margin-top: 0;
+}
+
+.installer-dependency {
+  padding: 16px 18px;
+  border-radius: 22px;
+  background: rgba(12, 25, 43, 0.82);
+}
+
+.installer-primary-button,
+.installer-secondary-button {
+  min-height: 52px;
+}
+
+@media (max-width: 980px) {
+  .installer-support-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .installer-stage {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .installer-shell {
+    padding: 28px 20px;
+  }
+
+  .installer-timeline {
+    width: 100%;
+  }
+
+  .installer-timeline__item {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .installer-timeline__meta {
+    grid-column: 2;
+    justify-self: start;
+    padding-top: 2px;
+  }
+}
+
 .installer-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(280px, 360px);
@@ -348,6 +645,86 @@ textarea {
   gap: 10px;
   color: rgba(232, 241, 252, 0.88);
   line-height: 1.5;
+}
+
+.installer-progress-card--stage {
+  width: min(100%, 340px);
+  text-align: left;
+}
+
+.installer-panel {
+  padding: 24px 26px;
+  border-radius: 28px;
+  background:
+    linear-gradient(180deg, rgba(10, 23, 39, 0.88), rgba(7, 16, 28, 0.9)),
+    rgba(8, 18, 32, 0.84);
+  border: 1px solid rgba(158, 189, 223, 0.1);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(18px);
+}
+
+.installer-panel h2 {
+  font-size: 1.22rem;
+}
+
+.installer-support-grid {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 400px);
+  gap: 24px;
+  align-items: start;
+}
+
+.installer-support-column,
+.installer-sidebar {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.installer-panel__actions {
+  display: grid;
+  gap: 12px;
+}
+
+.installer-panel__actions .installer-secondary-button {
+  margin-top: 0;
+}
+
+.installer-primary-button,
+.installer-secondary-button {
+  min-height: 52px;
+}
+
+@media (max-width: 980px) {
+  .installer-support-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .installer-stage {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .installer-shell {
+    padding: 28px 20px;
+  }
+
+  .installer-timeline {
+    width: 100%;
+  }
+
+  .installer-timeline__item {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .installer-timeline__meta {
+    grid-column: 2;
+    justify-self: start;
+    padding-top: 2px;
+  }
 }
 
 .stage-panel {
@@ -1699,6 +2076,12 @@ textarea {
   opacity: 0.72;
   transform: none;
   box-shadow: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes breathe {
