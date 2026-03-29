@@ -72,6 +72,19 @@ def test_packaged_windows_environment_only_requires_ollama(monkeypatch) -> None:
     assert [item["label"] for item in environment["checks"]] == ["Ollama"]
 
 
+def test_windows_ollama_install_command_uses_official_script_without_winget(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(installer.sys, "platform", "win32")
+    monkeypatch.setattr(installer, "_command_exists", lambda name: False)
+
+    command = installer._dependency_install_command("Ollama")
+
+    assert command is not None
+    assert "install.ps1" in command[-1]
+    assert command[-2] == "-Command"
+
+
 def test_environment_checks_on_linux_show_local_runtime_dependencies(monkeypatch) -> None:
     monkeypatch.setattr(installer.sys, "platform", "linux")
     monkeypatch.setattr(installer, "_command_exists", lambda _name: False)

@@ -386,26 +386,61 @@ def test_download_step_returns_guided_repair_when_winget_is_missing(
     )
 
 
-def test_packaged_windows_download_only_blocks_on_ollama(monkeypatch) -> None:
+def test_packaged_windows_download_auto_installs_ollama_without_winget(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(installer.sys, "platform", "win32")
     monkeypatch.setattr(installer.sys, "frozen", True, raising=False)
+    state = {"ready": False}
+
+    def fake_environment_checks() -> list[installer.DependencyStatus]:
+        if state["ready"]:
+            return [
+                make_dependency(
+                    dependency_id="ollama",
+                    label="Ollama",
+                    category="runtime",
+                    installed=True,
+                    version="ollama 0.6.0",
+                )
+            ]
+
+        return [
+            make_dependency(
+                dependency_id="ollama",
+                label="Ollama",
+                category="runtime",
+                installed=False,
+            )
+        ]
+
+    def fake_run_install_command(
+        command: list[str], *, timeout_seconds: int
+    ) -> installer.CommandExecutionResult:
+        assert timeout_seconds == installer.INSTALL_COMMAND_TIMEOUT_SECONDS
+        assert "install.ps1" in command[-1]
+        state["ready"] = True
+        return {
+            "ok": True,
+            "timed_out": False,
+            "returncode": 0,
+            "output": "",
+        }
+
     monkeypatch.setattr(installer, "_command_exists", lambda _name: False)
+    monkeypatch.setattr(installer, "_environment_checks", fake_environment_checks)
+    monkeypatch.setattr(installer, "_run_install_command", fake_run_install_command)
 
     response = client.post("/api/installer/download")
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["step"]["status"] == "needs_action"
+    assert payload["attempted"] is True
+    assert payload["installed"] == ["Ollama"]
+    assert payload["remaining"] == []
     assert payload["environment"]["missing_prerequisites"] == []
-    assert payload["environment"]["missing_runtime_dependencies"] == ["Ollama"]
-    assert payload["remaining"] == ["Ollama"]
-    assert "Ollama" in payload["step"]["message"]
-    assert not any(
-        "Node.js" in instruction for instruction in payload["step"]["recovery_instructions"]
-    )
-    assert not any(
-        "Rust" in instruction for instruction in payload["step"]["recovery_instructions"]
-    )
+    assert payload["environment"]["missing_runtime_dependencies"] == []
+    assert payload["step"]["status"] == "complete"
 
 
 def test_download_step_explains_ollama_windows_handoff(monkeypatch) -> None:

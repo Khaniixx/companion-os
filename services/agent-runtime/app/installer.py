@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -516,8 +517,8 @@ def _dependency_guidance(label: str) -> list[str]:
     if platform == "windows":
         return [
             "We need Ollama so the companion can use a local open-source model.",
-            "Companion OS can try a silent install with App Installer.",
-            "If that does not work, install Ollama manually, reopen Companion OS, and choose Retry.",
+            "Companion OS can use the official Ollama Windows installer automatically.",
+            "If that does not work, install Ollama manually from ollama.com, reopen Companion OS, and choose Retry.",
         ]
     if platform == "macos":
         return [
@@ -536,8 +537,9 @@ def _dependency_install_command(label: str) -> list[str] | None:
     platform = _platform_key()
 
     if platform == "windows":
-        if not _command_exists("winget"):
-            return None
+        powershell_path = Path(
+            os.environ.get("SystemRoot", r"C:\Windows")
+        ) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
         commands = {
             "Node.js": [
                 "winget",
@@ -570,14 +572,18 @@ def _dependency_install_command(label: str) -> list[str] | None:
                 ),
             ],
             "Ollama": [
-                "winget",
-                "install",
-                "Ollama.Ollama",
-                "--accept-source-agreements",
-                "--accept-package-agreements",
-                "--disable-interactivity",
+                str(powershell_path) if powershell_path.exists() else "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "Invoke-RestMethod https://ollama.com/install.ps1 | Invoke-Expression",
             ],
         }
+        if not _command_exists("winget"):
+            if label == "Ollama":
+                return commands["Ollama"]
+            return None
         return commands.get(label)
 
     if platform == "macos":
