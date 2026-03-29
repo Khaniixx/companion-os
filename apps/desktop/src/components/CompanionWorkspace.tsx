@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   clearCompanionSession,
@@ -128,15 +128,36 @@ export function CompanionWorkspace() {
   const transientTimerRef = useRef<number | null>(null);
   const streamBubbleTimerRef = useRef<number | null>(null);
   const seenStreamEventIdsRef = useRef<Set<number>>(new Set());
+  const seenUtilityAlertIdsRef = useRef<Set<number>>(new Set());
   const activePackRef = useRef<InstalledPack | null>(null);
+  const appendUniqueCompanionMessage = useCallback((text: string): void => {
+    setMessages((currentMessages) => {
+      if (
+        currentMessages.some(
+          (message) => message.sender === "companion" && message.text === text,
+        )
+      ) {
+        return currentMessages;
+      }
 
-  useEffect(() => {
-    isSendingRef.current = isSending;
-  }, [isSending]);
+      return [
+        ...currentMessages,
+        {
+          id: nextMessageId(),
+          sender: "companion",
+          text,
+        },
+      ];
+    });
+  }, []);
 
   useEffect(() => {
     activePackRef.current = activePack;
   }, [activePack]);
+
+  useEffect(() => {
+    isSendingRef.current = isSending;
+  }, [isSending]);
 
   useEffect(() => {
     const highestId = messages.reduce(
@@ -195,31 +216,15 @@ export function CompanionWorkspace() {
         setInstallerCompleted(installerStatus.completed);
         setActivePack(getActivePackFromResponse(packResponse.packs));
         setMicroUtilityState(utilityState);
+        seenUtilityAlertIdsRef.current = new Set(
+          utilityState.alerts.map((item) => item.id),
+        );
         setStreamState(currentStreamState);
         seenStreamEventIdsRef.current = new Set(
           currentStreamState.recent_events.map((event) => event.id),
         );
         if (nextModelStatus.state !== "ready") {
-          setMessages((currentMessages) => {
-            if (
-              currentMessages.some(
-                (message) =>
-                  message.sender === "companion" &&
-                  message.text === nextModelStatus.message,
-              )
-            ) {
-              return currentMessages;
-            }
-
-            return [
-              ...currentMessages,
-              {
-                id: nextMessageIdRef.current++,
-                sender: "companion",
-                text: nextModelStatus.message,
-              },
-            ];
-          });
+          appendUniqueCompanionMessage(nextModelStatus.message);
         }
       } catch {
         if (!active) {
@@ -248,7 +253,55 @@ export function CompanionWorkspace() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [appendUniqueCompanionMessage]);
+
+  useEffect(() => {
+    if (isLoadingUtilities) {
+      return;
+    }
+
+    let active = true;
+    const intervalId = window.setInterval(() => {
+      void pollUtilityState();
+    }, 5000);
+
+    async function pollUtilityState(): Promise<void> {
+      try {
+        const nextState = await microUtilityApi.getState();
+        if (!active) {
+          return;
+        }
+
+        setMicroUtilityState(nextState);
+        for (const alert of nextState.alerts) {
+          if (seenUtilityAlertIdsRef.current.has(alert.id)) {
+            continue;
+          }
+
+          seenUtilityAlertIdsRef.current.add(alert.id);
+          appendUniqueCompanionMessage(
+            alert.kind === "alarm"
+              ? `${alert.label} is ready now.`
+              : `${alert.label} just finished.`,
+          );
+          companionEventBus.emit("utilityActionCompleted", {
+            action: alert.kind === "alarm" ? "created_alarm" : "created_timer",
+          });
+        }
+      } catch {
+        if (!active) {
+          return;
+        }
+      }
+    }
+
+    void pollUtilityState();
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [appendUniqueCompanionMessage, isLoadingUtilities]);
 
   useEffect(() => {
     if (streamState === null) {
@@ -549,9 +602,11 @@ export function CompanionWorkspace() {
     return data.granted;
   }
 
-  async function refreshMicroUtilitiesState(): Promise<void> {
+  async function refreshMicroUtilitiesState(): Promise<MicroUtilityState> {
     const state = await microUtilityApi.getState();
     setMicroUtilityState(state);
+    seenUtilityAlertIdsRef.current = new Set(state.alerts.map((item) => item.id));
+    return state;
   }
 
   async function refreshWorkspaceSettings(): Promise<void> {
@@ -804,11 +859,9 @@ export function CompanionWorkspace() {
       companionEventBus.emit("utilityActionCompleted", {
         action: "capture_clipboard",
       });
-    } catch (error) {
-      const detail =
-        error instanceof Error ? error.message : "Unknown clipboard error";
+    } catch {
       appendCompanionMessage(
-        `I could not save the clipboard yet: ${detail}`,
+        "I could not tuck that clipboard note away just yet. Please try once more.",
         false,
       );
     }
@@ -846,11 +899,9 @@ export function CompanionWorkspace() {
 
       try {
         await persistPermission(permission, true);
-      } catch (error) {
-        const detail =
-          error instanceof Error ? error.message : "Unknown permission error";
+      } catch {
         appendCompanionMessage(
-          `I could not save that permission yet: ${detail}`,
+          "I could not hold onto that permission just yet. Please try again in a moment.",
           false,
         );
         return;
@@ -899,34 +950,36 @@ export function CompanionWorkspace() {
       const data: CompanionResponse =
         (await response.json()) as CompanionResponse;
 
+      const errorCode =
+        typeof data.action?.error_code === "string" ? data.action.error_code : null;
       const responseIsPositive =
         data.ok ||
         data.loading ||
         data.action?.type === "permission_required" ||
-        data.action?.error_code === "model_missing";
+        errorCode === "model_missing";
       await waitForPacing(getReplyThinkingDelay(data.assistant_response));
       appendCompanionMessage(data.assistant_response, responseIsPositive);
       if (
         data.action?.type === "chat_reply" &&
         typeof data.action.provider === "string" &&
         typeof data.action.model === "string" &&
-        (data.loading || data.action?.error_code === "model_missing")
+        (data.loading || errorCode === "model_missing")
       ) {
         setModelStatus({
           provider: data.action.provider,
           model: data.action.model,
           state: data.loading ? "loading" : "missing",
-          present: data.action?.error_code !== "model_missing",
+          present: errorCode !== "model_missing",
           loaded: false,
           message: data.assistant_response,
         });
       }
       await handleResponseAction(data.action, userText);
     } catch {
-      const companionName = activePackRef.current?.display_name ?? "Companion";
+      const packName = activePackRef.current?.display_name ?? "Companion";
       await waitForPacing(MIN_THINKING_DELAY_MS);
       appendCompanionMessage(
-        `${companionName} is having trouble reaching the local runtime right now. Please try again in a moment.`,
+        `${packName} is having trouble reaching the local runtime right now. Please try again in a moment.`,
         false,
       );
     } finally {
@@ -974,14 +1027,80 @@ export function CompanionWorkspace() {
     companionEventBus.emit("draftChanged", { draft: nextDraft });
   }
 
-  function handlePacksChanged(
-    packs: InstalledPack[],
-    activePackId: string | null,
-  ): void {
-    setActivePack(packs.find((pack) => pack.id === activePackId) ?? null);
+  async function handleToggleUtilityNote(
+    noteId: number,
+    completed: boolean,
+  ): Promise<void> {
+    try {
+      const updatedNote = await microUtilityApi.updateNote(noteId, { completed });
+      await refreshMicroUtilitiesState();
+      appendCompanionMessage(
+        completed
+          ? `I marked "${updatedNote.label}" as done.`
+          : `I reopened "${updatedNote.label}" for you.`,
+        true,
+      );
+      companionEventBus.emit("utilityActionCompleted", {
+        action: "created_todo",
+      });
+    } catch {
+      appendCompanionMessage(
+        "I could not update that note just yet. Please try again in a moment.",
+        false,
+      );
+    }
   }
 
-  const companionTitle = activePack?.display_name ?? "Companion";
+  async function handleEditUtilityNote(
+    noteId: number,
+    currentLabel: string,
+  ): Promise<void> {
+    const nextLabel = window.prompt("Update this note", currentLabel)?.trim();
+    if (!nextLabel || nextLabel === currentLabel) {
+      return;
+    }
+
+    try {
+      const updatedNote = await microUtilityApi.updateNote(noteId, {
+        label: nextLabel,
+      });
+      await refreshMicroUtilitiesState();
+      appendCompanionMessage(
+        `I updated that note to "${updatedNote.label}".`,
+        true,
+      );
+    } catch {
+      appendCompanionMessage(
+        "I could not update that note just yet. Please try again in a moment.",
+        false,
+      );
+    }
+  }
+
+  async function handleDismissUtilityAlert(utilityId: number): Promise<void> {
+    try {
+      const result = await microUtilityApi.dismissAlert(utilityId);
+      await refreshMicroUtilitiesState();
+      appendCompanionMessage(result.message, true);
+    } catch {
+      appendCompanionMessage(
+        "I could not dismiss that alert just yet. Please try again in a moment.",
+        false,
+      );
+    }
+  }
+
+  const handlePacksChanged = useCallback(
+    (packs: InstalledPack[], activePackId: string | null) => {
+      setActivePack(packs.find((pack) => pack.id === activePackId) ?? null);
+    },
+    [],
+  );
+
+  const companionTitle = useMemo(
+    () => activePack?.display_name ?? "Companion",
+    [activePack],
+  );
 
   return (
     <main
@@ -1195,8 +1314,17 @@ export function CompanionWorkspace() {
           onShowTodos={() => {
             void submitMessage("show my todo list");
           }}
+          onDismissAlert={(utilityId) => {
+            void handleDismissUtilityAlert(utilityId);
+          }}
+          onEditNote={(noteId, currentLabel) => {
+            void handleEditUtilityNote(noteId, currentLabel);
+          }}
           onRunShortcut={(shortcutId) => {
             void submitMessage(`run shortcut ${shortcutId}`);
+          }}
+          onToggleNote={(noteId, completed) => {
+            void handleToggleUtilityNote(noteId, completed);
           }}
         />
 

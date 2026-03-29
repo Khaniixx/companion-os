@@ -107,6 +107,9 @@ function createFetchMock(
       due_at: string | null;
       completed: boolean;
       created_at: string;
+      updated_at: string;
+      fired_at: string | null;
+      dismissed: boolean;
     }>,
     reminders: [] as Array<{
       id: number;
@@ -115,6 +118,9 @@ function createFetchMock(
       due_at: string | null;
       completed: boolean;
       created_at: string;
+      updated_at: string;
+      fired_at: string | null;
+      dismissed: boolean;
     }>,
     todos: [
       {
@@ -124,8 +130,33 @@ function createFetchMock(
         due_at: null,
         completed: false,
         created_at: "2026-03-29T00:00:00+00:00",
+        updated_at: "2026-03-29T00:00:00+00:00",
+        fired_at: null,
+        dismissed: false,
       },
     ],
+    notes: [] as Array<{
+      id: number;
+      kind: string;
+      label: string;
+      due_at: string | null;
+      completed: boolean;
+      created_at: string;
+      updated_at: string;
+      fired_at: string | null;
+      dismissed: boolean;
+    }>,
+    alerts: [] as Array<{
+      id: number;
+      kind: string;
+      label: string;
+      due_at: string | null;
+      completed: boolean;
+      created_at: string;
+      updated_at: string;
+      fired_at: string | null;
+      dismissed: boolean;
+    }>,
     clipboard_history: [] as Array<{
       id: number;
       text: string;
@@ -189,8 +220,9 @@ function createFetchMock(
       loaded: true,
       message: "Your local model is awake and ready.",
     };
+  utilityState.notes = [...utilityState.todos];
 
-  return vi
+  const fetchMock = vi
     .spyOn(window, "fetch")
     .mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -224,6 +256,78 @@ function createFetchMock(
       if (url.endsWith("/api/utilities/state")) {
         return Promise.resolve(
           new Response(JSON.stringify(utilityState), { status: 200 }),
+        );
+      }
+
+      if (url.match(/\/api\/utilities\/items\/\d+$/) && init?.method === "PATCH") {
+        const noteId = Number(url.split("/").pop());
+        const body = JSON.parse(String(init.body)) as {
+          label?: string;
+          completed?: boolean;
+        };
+        const note = utilityState.notes.find((item) => item.id === noteId);
+        if (!note) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ detail: "Note not found" }), {
+              status: 400,
+            }),
+          );
+        }
+
+        if (body.label !== undefined) {
+          note.label = body.label;
+        }
+        if (body.completed !== undefined) {
+          note.completed = body.completed;
+        }
+        note.updated_at = "2026-03-29T03:00:00+00:00";
+        if (note.kind === "todo") {
+          const todo = utilityState.todos.find((item) => item.id === noteId);
+          if (todo) {
+            Object.assign(todo, note);
+          }
+        }
+        if (note.kind === "reminder") {
+          const reminder = utilityState.reminders.find((item) => item.id === noteId);
+          if (reminder) {
+            Object.assign(reminder, note);
+          }
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify(note), { status: 200 }),
+        );
+      }
+
+      if (
+        url.match(/\/api\/utilities\/items\/\d+\/dismiss$/) &&
+        init?.method === "POST"
+      ) {
+        const urlParts = url.split("/");
+        const noteId = Number(urlParts[urlParts.length - 2]);
+        const alert = utilityState.alerts.find((item) => item.id === noteId);
+        if (!alert) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ detail: "Timer or alarm not found" }), {
+              status: 400,
+            }),
+          );
+        }
+        alert.completed = true;
+        alert.dismissed = true;
+        utilityState.alerts = utilityState.alerts.filter((item) => item.id !== noteId);
+        const timer = utilityState.timers.find((item) => item.id === noteId);
+        if (timer) {
+          timer.completed = true;
+          timer.dismissed = true;
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              item: timer ?? alert,
+              message: "I tucked that alert away for you.",
+            }),
+            { status: 200 },
+          ),
         );
       }
 
@@ -684,6 +788,9 @@ function createFetchMock(
             due_at: "2026-03-29T02:05:00+00:00",
             completed: false,
             created_at: "2026-03-29T02:00:00+00:00",
+            updated_at: "2026-03-29T02:00:00+00:00",
+            fired_at: null,
+            dismissed: false,
           };
           nextUtilityId += 1;
           utilityState.timers.unshift(timer);
@@ -791,6 +898,8 @@ function createFetchMock(
 
       return Promise.reject(new Error(`Unexpected fetch: ${url}`));
     });
+
+  return { fetchMock, utilityState };
 }
 
 describe("CompanionWorkspace", () => {
@@ -892,6 +1001,54 @@ describe("CompanionWorkspace", () => {
       await screen.findByText("I saved that clipboard text into your local history."),
     ).toBeInTheDocument();
     expect(await screen.findByText("Copied local snippet")).toBeInTheDocument();
+  });
+
+  it("lets the user complete, edit, and dismiss utility items from the desk", async () => {
+    const { utilityState } = createFetchMock();
+    const user = userEvent.setup();
+    vi.spyOn(window, "prompt").mockReturnValue("Keep launch notes polished");
+    utilityState.alerts.push({
+      id: 8,
+      kind: "timer",
+      label: "Tea timer",
+      due_at: "2026-03-29T02:10:00+00:00",
+      completed: false,
+      created_at: "2026-03-29T02:05:00+00:00",
+      updated_at: "2026-03-29T02:10:00+00:00",
+      fired_at: "2026-03-29T02:10:00+00:00",
+      dismissed: false,
+    });
+    utilityState.timers.push({
+      id: 8,
+      kind: "timer",
+      label: "Tea timer",
+      due_at: "2026-03-29T02:10:00+00:00",
+      completed: false,
+      created_at: "2026-03-29T02:05:00+00:00",
+      updated_at: "2026-03-29T02:10:00+00:00",
+      fired_at: "2026-03-29T02:10:00+00:00",
+      dismissed: false,
+    });
+
+    render(<CompanionWorkspace />);
+
+    expect(await screen.findByText("Keep setup notes tidy")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(
+      await screen.findByText('I marked "Keep setup notes tidy" as done.'),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Reopen" }));
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(
+      await screen.findByText('I updated that note to "Keep launch notes polished".'),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Tea timer").length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(
+      await screen.findByText("I tucked that alert away for you."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument();
   });
 
   it("retries permission-gated app launches through the same chat flow", async () => {

@@ -21,14 +21,23 @@ class BrowserHelperResult(TypedDict):
     message: str
 
 
-def _normalize_url(target: str) -> str:
-    candidate = target.strip()
+def _strip_matching_quotes(value: str) -> str:
+    normalized_value = value.strip()
+    if len(normalized_value) >= 2 and normalized_value[0] == normalized_value[-1]:
+        if normalized_value[0] in {'"', "'"}:
+            return normalized_value[1:-1].strip()
+    return normalized_value
+
+
+def _normalize_url(target: str) -> tuple[str, str]:
+    candidate = _strip_matching_quotes(target)
     if not candidate:
         raise ValueError("Browser requests need a destination.")
 
     if " " in candidate:
         raise ValueError("Open requests must use a valid URL.")
 
+    display_target = candidate
     if "://" not in candidate:
         candidate = f"https://{candidate}"
 
@@ -36,15 +45,18 @@ def _normalize_url(target: str) -> str:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("Only http and https URLs are supported.")
 
-    return parsed.geturl()
+    return parsed.geturl(), display_target
 
 
-def _build_search_url(query: str) -> str:
-    normalized_query = query.strip()
+def _build_search_url(query: str) -> tuple[str, str]:
+    normalized_query = _strip_matching_quotes(query)
     if not normalized_query:
         raise ValueError("Search requests need a query.")
 
-    return f"https://duckduckgo.com/?q={quote_plus(normalized_query)}"
+    return (
+        f"https://duckduckgo.com/?q={quote_plus(normalized_query)}",
+        normalized_query,
+    )
 
 
 def run_browser_helper(request_text: str) -> BrowserHelperResult:
@@ -55,26 +67,26 @@ def run_browser_helper(request_text: str) -> BrowserHelperResult:
 
     if lowered_request.startswith("search for "):
         query = normalized_request[11:].strip()
-        url = _build_search_url(query)
+        url, display_query = _build_search_url(query)
         tool_result = open_url(url)
         return {
             "ok": tool_result["ok"],
             "action": "search_query",
             "request": normalized_request,
             "url": url,
-            "message": f'I opened a browser search for "{query}".',
+            "message": f'Sure, searching the web for "{display_query}".',
         }
 
     if lowered_request.startswith("open "):
         raw_target = normalized_request[5:].strip()
-        url = _normalize_url(raw_target)
+        url, display_target = _normalize_url(raw_target)
         tool_result = open_url(url)
         return {
             "ok": tool_result["ok"],
             "action": "open_url",
             "request": normalized_request,
             "url": url,
-            "message": f"I opened {url} in your browser.",
+            "message": f"Opening {display_target}.",
         }
 
     raise ValueError(

@@ -7,6 +7,9 @@ type MicroUtilitiesPanelProps = {
   onSaveClipboard: () => void;
   onShowTodos: () => void;
   onRunShortcut: (shortcutId: string) => void;
+  onToggleNote: (noteId: number, completed: boolean) => void;
+  onEditNote: (noteId: number, currentLabel: string) => void;
+  onDismissAlert: (utilityId: number) => void;
 };
 
 function formatDueTime(isoValue: string | null): string {
@@ -41,10 +44,14 @@ export function MicroUtilitiesPanel({
   onSaveClipboard,
   onShowTodos,
   onRunShortcut,
+  onToggleNote,
+  onEditNote,
+  onDismissAlert,
 }: MicroUtilitiesPanelProps) {
   const activeTimers = state?.timers.slice(0, 2) ?? [];
   const activeReminders = state?.reminders.slice(0, 2) ?? [];
-  const activeTodos = state?.todos.slice(0, 3) ?? [];
+  const notes = state?.notes.slice(0, 4) ?? [];
+  const alerts = state?.alerts.slice(0, 2) ?? [];
   const clipboardEntries = state?.clipboard_history.slice(0, 2) ?? [];
   const shortcuts = state?.shortcuts.slice(0, 3) ?? [];
 
@@ -57,10 +64,40 @@ export function MicroUtilitiesPanel({
         </div>
         <div className="utility-panel__counts" aria-label="Utility counts">
           <span>{state?.timers.length ?? 0} active</span>
-          <span>{state?.todos.length ?? 0} notes</span>
+          <span>{state?.notes.length ?? 0} notes</span>
           <span>{state?.clipboard_history.length ?? 0} clips</span>
         </div>
       </div>
+
+      {alerts.length > 0 ? (
+        <div className="utility-alerts" aria-live="polite">
+          {alerts.map((item) => (
+            <div className="utility-alert" key={`alert-${item.id}`}>
+              <div>
+                <span className="utility-alert__eyebrow">
+                  {item.kind === "alarm" ? "Alarm complete" : "Timer complete"}
+                </span>
+                <strong>{item.label}</strong>
+                <p>
+                  {item.kind === "alarm"
+                    ? "A saved alarm just finished."
+                    : "Your timer just finished."}
+                </p>
+              </div>
+              <button
+                className="utility-alert__button"
+                disabled={isBusy}
+                type="button"
+                onClick={() => {
+                  onDismissAlert(item.id);
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <div className="utility-panel__actions">
         <button
@@ -120,18 +157,46 @@ export function MicroUtilitiesPanel({
 
         <article className="utility-column">
           <h4>Notes</h4>
-          {activeTodos.length === 0 ? (
+          {notes.length === 0 ? (
             <p className="utility-column__empty">
-              Your local to-do list is clear.
+              Your local reminder list is clear.
             </p>
           ) : (
             <div className="utility-list">
-              {activeTodos.map((item) => (
-                <div className="utility-list__item" key={`todo-${item.id}`}>
-                  <span className="utility-list__label">{item.label}</span>
-                  <span className="utility-list__meta">
-                    {item.completed ? "Done" : "Open"}
-                  </span>
+              {notes.map((item) => (
+                <div className="utility-list__item" key={`note-${item.id}`}>
+                  <div className="utility-list__stack">
+                    <span className="utility-list__label">{item.label}</span>
+                    <span className="utility-list__meta">
+                      {item.kind === "reminder"
+                        ? `Reminder · ${formatDueTime(item.due_at)}`
+                        : item.completed
+                          ? "To-do · Done"
+                          : "To-do · Open"}
+                    </span>
+                  </div>
+                  <div className="utility-list__actions">
+                    <button
+                      className="utility-inline-button"
+                      disabled={isBusy}
+                      type="button"
+                      onClick={() => {
+                        onToggleNote(item.id, !item.completed);
+                      }}
+                    >
+                      {item.completed ? "Reopen" : "Done"}
+                    </button>
+                    <button
+                      className="utility-inline-button"
+                      disabled={isBusy}
+                      type="button"
+                      onClick={() => {
+                        onEditNote(item.id, item.label);
+                      }}
+                    >
+                      Edit
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

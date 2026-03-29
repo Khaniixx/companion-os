@@ -19,6 +19,7 @@ MICRO_UTILITIES_FILE = (
 MAX_CLIPBOARD_HISTORY: Final[int] = 10
 ShortcutKind = Literal["app", "browser"]
 UtilityKind = Literal["timer", "alarm", "reminder", "todo"]
+CollectionName = Literal["timers", "reminders", "todos"]
 
 _micro_utilities_lock = Lock()
 
@@ -37,6 +38,9 @@ class ScheduledUtility(TypedDict):
     due_at: str | None
     completed: bool
     created_at: str
+    updated_at: str
+    fired_at: str | None
+    dismissed: bool
 
 
 class ClipboardEntry(TypedDict):
@@ -90,10 +94,7 @@ def _ensure_state_file() -> None:
         return
 
     MICRO_UTILITIES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    MICRO_UTILITIES_FILE.write_text(
-        json.dumps(_default_state(), indent=2),
-        encoding="utf-8",
-    )
+    _write_state(_default_state())
 
 
 def _normalize_shortcuts(raw_shortcuts: object) -> list[Shortcut]:
@@ -108,12 +109,7 @@ def _normalize_shortcuts(raw_shortcuts: object) -> list[Shortcut]:
         label = str(item.get("label", "")).strip()
         kind = str(item.get("kind", "")).strip().lower()
         target = str(item.get("target", "")).strip()
-        if (
-            shortcut_id
-            and label
-            and kind in {"app", "browser"}
-            and target
-        ):
+        if shortcut_id and label and kind in {"app", "browser"} and target:
             shortcuts.append(
                 {
                     "id": shortcut_id,
@@ -146,6 +142,9 @@ def _normalize_scheduled_utilities(
         due_at = item.get("due_at")
         completed = item.get("completed", False)
         created_at = item.get("created_at")
+        updated_at = item.get("updated_at")
+        fired_at = item.get("fired_at")
+        dismissed = item.get("dismissed", False)
         if not isinstance(utility_id, int) or not isinstance(label, str):
             continue
 
@@ -162,6 +161,9 @@ def _normalize_scheduled_utilities(
                 "due_at": str(due_at) if due_at is not None else None,
                 "completed": bool(completed),
                 "created_at": str(created_at or _now_iso()),
+                "updated_at": str(updated_at or created_at or _now_iso()),
+                "fired_at": str(fired_at) if fired_at is not None else None,
+                "dismissed": bool(dismissed),
             }
         )
 
@@ -192,10 +194,42 @@ def _normalize_clipboard_history(raw_history: object) -> list[ClipboardEntry]:
     return history[:MAX_CLIPBOARD_HISTORY]
 
 
+def _parse_iso_datetime(raw_value: str | None) -> datetime | None:
+    if raw_value is None:
+        return None
+
+    try:
+        parsed_value = datetime.fromisoformat(raw_value)
+    except ValueError:
+        return None
+
+    if parsed_value.tzinfo is None:
+        return parsed_value.replace(tzinfo=UTC)
+    return parsed_value.astimezone(UTC)
+
+
+def _refresh_due_utilities(state: MicroUtilitiesState) -> bool:
+    now = _now()
+    changed = False
+    for utility in state["timers"]:
+        due_at = _parse_iso_datetime(utility["due_at"])
+        if due_at is None:
+            continue
+        if utility["completed"] or utility["dismissed"] or utility["fired_at"] is not None:
+            continue
+        if due_at <= now:
+            utility["fired_at"] = now.isoformat()
+            utility["updated_at"] = now.isoformat()
+            changed = True
+    return changed
+
+
 def _read_state() -> MicroUtilitiesState:
     _ensure_state_file()
-    with MICRO_UTILITIES_FILE.open("r", encoding="utf-8") as file_handle:
-        raw_state = json.load(file_handle)
+    try:
+        raw_state = json.loads(MICRO_UTILITIES_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return _default_state()
 
     if not isinstance(raw_state, dict):
         return _default_state()
@@ -204,7 +238,7 @@ def _read_state() -> MicroUtilitiesState:
     if not isinstance(next_id, int) or next_id < 1:
         next_id = 1
 
-    return {
+    state = {
         "next_id": next_id,
         "timers": _normalize_scheduled_utilities(
             raw_state.get("timers"),
@@ -223,20 +257,24 @@ def _read_state() -> MicroUtilitiesState:
         ),
         "shortcuts": _normalize_shortcuts(raw_state.get("shortcuts")),
     }
+    if _refresh_due_utilities(state):
+        _write_state(state)
+    return state
 
 
 def _write_state(state: MicroUtilitiesState) -> None:
     MICRO_UTILITIES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    MICRO_UTILITIES_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    temp_file = MICRO_UTILITIES_FILE.with_suffix(".tmp")
+    temp_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    temp_file.replace(MICRO_UTILITIES_FILE)
 
 
 def _format_due_time(iso_value: str | None) -> str:
     if iso_value is None:
         return "without a due time"
 
-    try:
-        due_at = datetime.fromisoformat(iso_value)
-    except ValueError:
+    due_at = _parse_iso_datetime(iso_value)
+    if due_at is None:
         return "soon"
 
     return due_at.astimezone(UTC).strftime("%H:%M UTC")
@@ -250,32 +288,54 @@ def _copy_utility(utility: ScheduledUtility) -> ScheduledUtility:
         "due_at": utility["due_at"],
         "completed": utility["completed"],
         "created_at": utility["created_at"],
+        "updated_at": utility["updated_at"],
+        "fired_at": utility["fired_at"],
+        "dismissed": utility["dismissed"],
     }
 
 
 def _append_utility(
     state: MicroUtilitiesState,
     *,
-    collection_name: Literal["timers", "reminders", "todos"],
+    collection_name: CollectionName,
     kind: UtilityKind,
     label: str,
     due_at: str | None,
 ) -> ScheduledUtility:
+    timestamp = _now_iso()
     utility = {
         "id": state["next_id"],
         "kind": kind,
         "label": label.strip(),
         "due_at": due_at,
         "completed": False,
-        "created_at": _now_iso(),
+        "created_at": timestamp,
+        "updated_at": timestamp,
+        "fired_at": None,
+        "dismissed": False,
     }
     state["next_id"] += 1
     state[collection_name].insert(0, utility)
     return utility
 
 
+def _combined_notes(state: MicroUtilitiesState) -> list[ScheduledUtility]:
+    notes = [_copy_utility(item) for item in state["reminders"]] + [
+        _copy_utility(item) for item in state["todos"]
+    ]
+    return sorted(notes, key=lambda item: item["created_at"], reverse=True)
+
+
+def _active_alerts(state: MicroUtilitiesState) -> list[ScheduledUtility]:
+    return [
+        _copy_utility(item)
+        for item in state["timers"]
+        if item["fired_at"] is not None and not item["dismissed"] and not item["completed"]
+    ]
+
+
 def list_micro_utility_state() -> dict[str, object]:
-    """Return timers, reminders, todos, clipboard history, and shortcuts."""
+    """Return timers, reminders, todos, clipboard history, notes, and alerts."""
 
     with _micro_utilities_lock:
         state = _read_state()
@@ -283,6 +343,8 @@ def list_micro_utility_state() -> dict[str, object]:
             "timers": [_copy_utility(item) for item in state["timers"]],
             "reminders": [_copy_utility(item) for item in state["reminders"]],
             "todos": [_copy_utility(item) for item in state["todos"]],
+            "notes": _combined_notes(state),
+            "alerts": _active_alerts(state),
             "clipboard_history": [entry.copy() for entry in state["clipboard_history"]],
             "shortcuts": [shortcut.copy() for shortcut in state["shortcuts"]],
         }
@@ -353,6 +415,34 @@ def add_todo(*, text: str) -> ScheduledUtility:
         return todo
 
 
+def update_note(
+    note_id: int,
+    *,
+    label: str | None = None,
+    completed: bool | None = None,
+) -> ScheduledUtility:
+    """Edit or complete a reminder or to-do note."""
+
+    with _micro_utilities_lock:
+        state = _read_state()
+        for collection_name in ("reminders", "todos"):
+            for note in state[collection_name]:
+                if note["id"] != note_id:
+                    continue
+                if label is not None:
+                    normalized_label = label.strip()
+                    if not normalized_label:
+                        raise ValueError("Note text cannot be empty.")
+                    note["label"] = normalized_label
+                if completed is not None:
+                    note["completed"] = completed
+                note["updated_at"] = _now_iso()
+                _write_state(state)
+                return _copy_utility(note)
+
+    raise ValueError(f"Note not found: {note_id}")
+
+
 def toggle_todo(todo_id: int) -> ScheduledUtility:
     """Toggle completion for a stored to-do note."""
 
@@ -361,10 +451,28 @@ def toggle_todo(todo_id: int) -> ScheduledUtility:
         for todo in state["todos"]:
             if todo["id"] == todo_id:
                 todo["completed"] = not todo["completed"]
+                todo["updated_at"] = _now_iso()
                 _write_state(state)
                 return _copy_utility(todo)
 
     raise ValueError(f"To-do item not found: {todo_id}")
+
+
+def dismiss_utility_alert(utility_id: int) -> ScheduledUtility:
+    """Dismiss a completed timer or alarm alert."""
+
+    with _micro_utilities_lock:
+        state = _read_state()
+        for utility in state["timers"]:
+            if utility["id"] != utility_id:
+                continue
+            utility["dismissed"] = True
+            utility["completed"] = True
+            utility["updated_at"] = _now_iso()
+            _write_state(state)
+            return _copy_utility(utility)
+
+    raise ValueError(f"Timer or alarm not found: {utility_id}")
 
 
 def capture_clipboard_entry(text: str) -> ClipboardEntry:
@@ -376,6 +484,11 @@ def capture_clipboard_entry(text: str) -> ClipboardEntry:
 
     with _micro_utilities_lock:
         state = _read_state()
+        if state["clipboard_history"] and state["clipboard_history"][0]["text"] == normalized_text:
+            state["clipboard_history"][0]["created_at"] = _now_iso()
+            _write_state(state)
+            return state["clipboard_history"][0].copy()
+
         entry = {
             "id": state["next_id"],
             "text": normalized_text,
@@ -416,8 +529,18 @@ def execute_shortcut(shortcut_id: str) -> dict[str, object]:
                 },
             }
         result = launch_app_skill(shortcut["target"])
+        if not result["ok"]:
+            return {
+                "ok": False,
+                "message": result["message"],
+                "action": {
+                    "type": "app_suggestion",
+                    "suggestions": result["suggestions"],
+                    "reason": result["reason"],
+                },
+            }
         return {
-            "ok": result["ok"],
+            "ok": True,
             "message": f'I ran the "{shortcut["label"]}" shortcut.',
             "action": {
                 "type": "shortcut_executed",
@@ -458,7 +581,9 @@ def describe_active_timers() -> str:
 
     state = list_micro_utility_state()
     timers = [
-        item for item in state["timers"] if not bool(item["completed"])
+        item
+        for item in state["timers"]
+        if not bool(item["completed"]) and not bool(item["dismissed"])
     ]
     if not timers:
         return "There are no active timers or alarms right now."

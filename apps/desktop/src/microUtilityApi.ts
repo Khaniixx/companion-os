@@ -5,6 +5,9 @@ export type UtilityItem = {
   due_at: string | null;
   completed: boolean;
   created_at: string;
+  updated_at: string;
+  fired_at: string | null;
+  dismissed: boolean;
 };
 
 export type ClipboardEntry = {
@@ -24,6 +27,8 @@ export type MicroUtilityState = {
   timers: UtilityItem[];
   reminders: UtilityItem[];
   todos: UtilityItem[];
+  notes: UtilityItem[];
+  alerts: UtilityItem[];
   clipboard_history: ClipboardEntry[];
   shortcuts: Shortcut[];
 };
@@ -40,6 +45,11 @@ export type ClipboardCaptureResponse = {
   id: number;
   text: string;
   created_at: string;
+  message: string;
+};
+
+export type UtilityDismissResponse = {
+  item: UtilityItem;
   message: string;
 };
 
@@ -71,5 +81,18 @@ export const microUtilityApi = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
+    }),
+  updateNote: (
+    itemId: number,
+    payload: { label?: string; completed?: boolean },
+  ) =>
+    request<UtilityItem>(`/api/utilities/items/${itemId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  dismissAlert: (itemId: number) =>
+    request<UtilityDismissResponse>(`/api/utilities/items/${itemId}/dismiss`, {
+      method: "POST",
     }),
 };

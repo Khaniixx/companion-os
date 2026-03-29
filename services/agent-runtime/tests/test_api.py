@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,6 +10,7 @@ import app.memory_manager as memory_manager
 import app.micro_utilities as micro_utilities
 import app.personality_packs as personality_packs
 import app.preferences as preferences
+import app.skills.app_launcher as app_launcher_skill
 import app.skills.browser_helper as browser_helper_skill
 import app.stream_integration as stream_integration
 from app.main import app
@@ -36,6 +38,11 @@ def temp_state_files(tmp_path, monkeypatch) -> Path:
         stream_integration,
         "STREAM_INTEGRATION_STATE_FILE",
         tmp_path / "stream_integration.json",
+    )
+    monkeypatch.setattr(
+        app_launcher_skill,
+        "APP_LAUNCHER_STATE_FILE",
+        tmp_path / "app_launcher_state.json",
     )
     return preferences_file
 
@@ -83,6 +90,7 @@ def test_chat_returns_structured_companion_reply(monkeypatch) -> None:
                 "provider": "ollama",
                 "model": "llama3.1:8b-instruct",
             },
+            loading=False,
         ),
     )
 
@@ -99,6 +107,7 @@ def test_chat_returns_structured_companion_reply(monkeypatch) -> None:
             "provider": "ollama",
             "model": "llama3.1:8b-instruct",
         },
+        "loading": False,
     }
 
     memory_response = client.get("/api/memory/summaries")
@@ -117,6 +126,7 @@ def test_chat_returns_structured_app_route(monkeypatch) -> None:
             user_message="open Spotify",
             assistant_response="I am opening Spotify for you.",
             action={"type": "open_app", "app": "spotify"},
+            loading=False,
         ),
     )
 
@@ -129,6 +139,7 @@ def test_chat_returns_structured_app_route(monkeypatch) -> None:
         "user_message": "open Spotify",
         "assistant_response": "I am opening Spotify for you.",
         "action": {"type": "open_app", "app": "spotify"},
+        "loading": False,
     }
 
 
@@ -408,7 +419,6 @@ def test_download_step_returns_retryable_failure_on_timeout(monkeypatch) -> None
         "_dependency_install_command",
         lambda _label: ["fake-installer"],
     )
-
     def fake_run_install_command(
         _command: list[str], *, timeout_seconds: int
     ) -> installer.CommandExecutionResult:
@@ -685,6 +695,7 @@ def test_memory_settings_update_and_summary_edit_delete(monkeypatch) -> None:
                 "provider": "ollama",
                 "model": "llama3.1:8b-instruct",
             },
+            loading=False,
         ),
     )
     update_response = client.put(
@@ -737,6 +748,7 @@ def test_disabling_memory_clears_pending_messages(monkeypatch) -> None:
                 "provider": "ollama",
                 "model": "llama3.1:8b-instruct",
             },
+            loading=False,
         ),
     )
     preferences.update_memory_settings(summary_frequency_messages=10)
@@ -801,6 +813,9 @@ def test_open_app_launches_supported_app(monkeypatch) -> None:
         return {
             "ok": True,
             "app": app_name,
+            "display_name": "Spotify",
+            "suggestions": ["Spotify"],
+            "reason": "resolved",
             "message": f"Requested launch for {app_name}.",
         }
 
@@ -813,6 +828,9 @@ def test_open_app_launches_supported_app(monkeypatch) -> None:
     assert response.json() == {
         "ok": True,
         "app": "spotify",
+        "display_name": "Spotify",
+        "suggestions": ["Spotify"],
+        "reason": "resolved",
         "message": "Requested launch for spotify.",
     }
 
@@ -830,12 +848,15 @@ def test_open_app_returns_backend_error(monkeypatch) -> None:
     assert response.json() == {"detail": "Failed to launch spotify"}
 
 
-def test_open_app_rejects_unsupported_app() -> None:
+def test_open_app_returns_suggestions_for_unmatched_app() -> None:
     preferences.set_permission("open_app", True)
     response = client.post("/api/skills/open-app", json={"app": "zoom"})
 
-    assert response.status_code == 400
-    assert response.json() == {"detail": "Unsupported app: zoom"}
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
+    assert response.json()["app"] is None
+    assert response.json()["reason"] == "not_found"
+    assert response.json()["suggestions"] == ["Spotify", "Discord"]
 
 
 def test_open_app_requires_permission() -> None:
@@ -867,7 +888,7 @@ def test_browser_helper_searches_query(monkeypatch) -> None:
         "action": "search_query",
         "request": "search for best local llm setup",
         "url": "https://duckduckgo.com/?q=best+local+llm+setup",
-        "message": 'I opened a browser search for "best local llm setup".',
+        "message": 'Sure, searching the web for "best local llm setup".',
     }
 
 
@@ -893,8 +914,29 @@ def test_browser_helper_opens_url(monkeypatch) -> None:
         "action": "open_url",
         "request": "open openai.com",
         "url": "https://openai.com",
-        "message": "I opened https://openai.com in your browser.",
+        "message": "Opening openai.com.",
     }
+
+
+def test_browser_helper_supports_quoted_search_query(monkeypatch) -> None:
+    def fake_open_url(url: str) -> OpenUrlResult:
+        return {
+            "ok": True,
+            "url": url,
+            "message": f"Opened {url} in the default browser.",
+        }
+
+    preferences.set_permission("open_url", True)
+    monkeypatch.setattr(browser_helper_skill, "open_url", fake_open_url)
+
+    response = client.post(
+        "/api/skills/browser-helper",
+        json={"request": 'search for "best local llm setup"'},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["url"] == "https://duckduckgo.com/?q=best+local+llm+setup"
+    assert response.json()["message"] == 'Sure, searching the web for "best local llm setup".'
 
 
 def test_browser_helper_rejects_invalid_request() -> None:
@@ -929,6 +971,8 @@ def test_get_micro_utilities_state_returns_defaults() -> None:
         "timers": [],
         "reminders": [],
         "todos": [],
+        "notes": [],
+        "alerts": [],
         "clipboard_history": [],
         "shortcuts": [
             {
@@ -967,6 +1011,9 @@ def test_micro_utility_route_creates_timer() -> None:
     state_response = client.get("/api/utilities/state")
     assert state_response.status_code == 200
     assert state_response.json()["timers"][0]["label"] == "5-minute timer"
+    assert state_response.json()["timers"][0]["updated_at"] is not None
+    assert state_response.json()["timers"][0]["fired_at"] is None
+    assert state_response.json()["alerts"] == []
 
 
 def test_micro_utility_route_rejects_invalid_request() -> None:
@@ -1000,6 +1047,43 @@ def test_capture_clipboard_route_stores_local_entry() -> None:
     assert state_response.json()["clipboard_history"][0]["text"] == (
         "Remember this local note."
     )
+
+
+def test_update_note_and_dismiss_timer_alert_routes(monkeypatch) -> None:
+    monkeypatch.setattr(
+        micro_utilities,
+        "_now",
+        lambda: datetime(2026, 3, 29, 0, 0, tzinfo=UTC),
+    )
+    timer = micro_utilities.create_timer(duration_minutes=1)
+    reminder = micro_utilities.create_reminder(
+        text="stretch",
+        due_at=datetime(2026, 3, 29, 0, 10, tzinfo=UTC),
+    )
+    monkeypatch.setattr(
+        micro_utilities,
+        "_now",
+        lambda: datetime(2026, 3, 29, 0, 2, tzinfo=UTC),
+    )
+
+    update_response = client.patch(
+        f"/api/utilities/items/{reminder['id']}",
+        json={"label": "stretch gently", "completed": True},
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json()["label"] == "stretch gently"
+    assert update_response.json()["completed"] is True
+
+    state_response = client.get("/api/utilities/state")
+    assert state_response.status_code == 200
+    assert state_response.json()["alerts"][0]["id"] == timer["id"]
+
+    dismiss_response = client.post(f"/api/utilities/items/{timer['id']}/dismiss")
+
+    assert dismiss_response.status_code == 200
+    assert dismiss_response.json()["item"]["dismissed"] is True
+    assert dismiss_response.json()["message"] == "I tucked that alert away for you."
 
 
 def test_stream_state_returns_defaults() -> None:

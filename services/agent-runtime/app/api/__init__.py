@@ -21,7 +21,12 @@ from app.installer import (
     repair_installation,
     start_and_connect,
 )
-from app.micro_utilities import capture_clipboard_entry, list_micro_utility_state
+from app.micro_utilities import (
+    capture_clipboard_entry,
+    dismiss_utility_alert,
+    list_micro_utility_state,
+    update_note,
+)
 from app.memory_manager import (
     clear_memory_summaries,
     clear_pending_memory,
@@ -80,6 +85,7 @@ class ChatResponse(BaseModel):
     user_message: str
     assistant_response: str
     action: dict[str, object] | None = None
+    loading: bool = False
 
 
 class OpenAppRequest(BaseModel):
@@ -94,7 +100,10 @@ class OpenAppResponse(BaseModel):
     """Response payload after attempting to launch a desktop app."""
 
     ok: bool
-    app: str
+    app: str | None = None
+    display_name: str | None = None
+    suggestions: list[str] = Field(default_factory=list)
+    reason: str | None = None
     message: str
 
 
@@ -143,6 +152,9 @@ class UtilityItemResponse(BaseModel):
     due_at: str | None
     completed: bool
     created_at: str
+    updated_at: str
+    fired_at: str | None
+    dismissed: bool
 
 
 class ClipboardEntryResponse(BaseModel):
@@ -168,6 +180,8 @@ class MicroUtilitiesStateResponse(BaseModel):
     timers: list[UtilityItemResponse]
     reminders: list[UtilityItemResponse]
     todos: list[UtilityItemResponse]
+    notes: list[UtilityItemResponse]
+    alerts: list[UtilityItemResponse]
     clipboard_history: list[ClipboardEntryResponse]
     shortcuts: list[ShortcutResponse]
 
@@ -186,6 +200,20 @@ class ClipboardCaptureResponse(BaseModel):
     id: int
     text: str
     created_at: str
+    message: str
+
+
+class UtilityNoteUpdateRequest(BaseModel):
+    """Editable fields for a stored reminder or to-do note."""
+
+    label: Annotated[str, StringConstraints(strip_whitespace=True)] | None = None
+    completed: bool | None = None
+
+
+class UtilityDismissResponse(BaseModel):
+    """Result returned after dismissing a timer or alarm alert."""
+
+    item: UtilityItemResponse
     message: str
 
 
@@ -652,6 +680,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         user_message=result.user_message,
         assistant_response=result.assistant_response,
         action=result.action,
+        loading=result.loading,
     )
 
 
@@ -979,6 +1008,43 @@ async def get_micro_utilities_state() -> MicroUtilitiesStateResponse:
     """Return stored timers, reminders, notes, clipboard history, and shortcuts."""
 
     return MicroUtilitiesStateResponse(**list_micro_utility_state())
+
+
+@router.patch("/utilities/items/{item_id}", response_model=UtilityItemResponse)
+async def edit_micro_utility_note(
+    item_id: int,
+    request: UtilityNoteUpdateRequest,
+) -> UtilityItemResponse:
+    """Edit or complete a stored reminder or to-do note."""
+
+    try:
+        return UtilityItemResponse(
+            **update_note(
+                item_id,
+                label=request.label,
+                completed=request.completed,
+            )
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post(
+    "/utilities/items/{item_id}/dismiss",
+    response_model=UtilityDismissResponse,
+)
+async def dismiss_micro_utility_item(item_id: int) -> UtilityDismissResponse:
+    """Dismiss a fired timer or alarm alert."""
+
+    try:
+        item = dismiss_utility_alert(item_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return UtilityDismissResponse(
+        item=UtilityItemResponse(**item),
+        message="I tucked that alert away for you.",
+    )
 
 
 @router.post(

@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from app.chat.service import generate_companion_reply
+from app.chat.service import format_in_character_error, generate_companion_reply
 from app.preferences import get_permission
-from app.skills.app_launcher import launch_app_skill
+from app.skills.app_launcher import has_app_match_hint, launch_app_skill, resolve_app_request
 from app.skills.browser_helper import run_browser_helper
 from app.skills.micro_utilities import run_micro_utility
 
@@ -29,6 +29,7 @@ class RouterResult:
     user_message: str
     assistant_response: str
     action: dict[str, object] | None = None
+    loading: bool = False
 
 
 def _normalized_message(message: str) -> tuple[str, str]:
@@ -92,9 +93,6 @@ def choose_route(message: str) -> RouteName:
 
     normalized_message, lowered_message = _normalized_message(message)
 
-    if lowered_message in {"open spotify", "open discord"}:
-        return "app-launcher"
-
     if lowered_message.startswith("search for "):
         return "browser-helper"
 
@@ -102,6 +100,8 @@ def choose_route(message: str) -> RouteName:
         target = normalized_message[5:].strip()
         if _looks_like_browser_target(target):
             return "browser-helper"
+        if has_app_match_hint(target):
+            return "app-launcher"
 
     if _looks_like_micro_utility_request(normalized_message):
         return "micro-utilities"
@@ -116,37 +116,89 @@ def route_user_message(message: str) -> RouterResult:
     route = choose_route(normalized_message)
 
     if route == "app-launcher":
-        app_name = lowered_message[5:].strip()
+        requested_app = normalized_message[5:].strip()
+        resolution = resolve_app_request(requested_app)
+
+        if not resolution["ok"]:
+            return RouterResult(
+                ok=False,
+                route="app-launcher",
+                user_message=normalized_message,
+                assistant_response=resolution["message"],
+                action={
+                    "type": "app_suggestion",
+                    "suggestions": resolution["suggestions"],
+                    "reason": resolution["reason"],
+                },
+            )
+
+        resolved_app = resolution["app"]
+        if resolved_app is None:
+            return RouterResult(
+                ok=False,
+                route="app-launcher",
+                user_message=normalized_message,
+                assistant_response=resolution["message"],
+                action={
+                    "type": "app_suggestion",
+                    "suggestions": resolution["suggestions"],
+                    "reason": resolution["reason"],
+                },
+            )
+
         if not get_permission("open_app"):
             return RouterResult(
                 ok=False,
                 route="app-launcher",
                 user_message=normalized_message,
                 assistant_response=(
-                    f"I can open {app_name.title()} once you allow app launches in Companion OS."
+                    f'I can open {resolution["display_name"]} once you allow app launches in Companion OS.'
                 ),
                 action={
                     "type": "permission_required",
                     "permission": "open_app",
-                    "target": app_name,
+                    "target": resolved_app,
+                    "display_name": resolution["display_name"],
                 },
             )
 
-        result = launch_app_skill(app_name)
-        return RouterResult(
-            ok=result["ok"],
-            route="app-launcher",
-            user_message=normalized_message,
-            assistant_response=(
-                f"I am opening {app_name.title()} for you."
-                if result["ok"]
-                else result["message"]
-            ),
-            action={
-                "type": "open_app",
-                "app": result["app"],
-            },
-        )
+        try:
+            result = launch_app_skill(requested_app)
+            if not result["ok"] or result["app"] is None:
+                return RouterResult(
+                    ok=False,
+                    route="app-launcher",
+                    user_message=normalized_message,
+                    assistant_response=result["message"],
+                    action={
+                        "type": "app_suggestion",
+                        "suggestions": result["suggestions"],
+                        "reason": result["reason"],
+                    },
+                )
+            return RouterResult(
+                ok=result["ok"],
+                route="app-launcher",
+                user_message=normalized_message,
+                assistant_response=result["message"],
+                action={
+                    "type": "open_app",
+                    "app": result["app"],
+                    "display_name": result["display_name"],
+                },
+            )
+        except (RuntimeError, ValueError):
+            return RouterResult(
+                ok=False,
+                route="app-launcher",
+                user_message=normalized_message,
+                assistant_response=format_in_character_error("app_launch_failed"),
+                action={
+                    "type": "skill_error",
+                    "error_code": "app_launch_failed",
+                    "skill": "app-launcher",
+                },
+            )
 
     if route == "browser-helper":
         if not get_permission("open_url"):
@@ -163,17 +215,30 @@ def route_user_message(message: str) -> RouterResult:
                 },
             )
 
-        result = run_browser_helper(normalized_message)
-        return RouterResult(
-            ok=result["ok"],
-            route="browser-helper",
-            user_message=normalized_message,
-            assistant_response=result["message"],
-            action={
-                "type": result["action"],
-                "url": result["url"],
-            },
-        )
+        try:
+            result = run_browser_helper(normalized_message)
+            return RouterResult(
+                ok=result["ok"],
+                route="browser-helper",
+                user_message=normalized_message,
+                assistant_response=result["message"],
+                action={
+                    "type": result["action"],
+                    "url": result["url"],
+                },
+            )
+        except (RuntimeError, ValueError):
+            return RouterResult(
+                ok=False,
+                route="browser-helper",
+                user_message=normalized_message,
+                assistant_response=format_in_character_error("browser_unavailable"),
+                action={
+                    "type": "skill_error",
+                    "error_code": "browser_unavailable",
+                    "skill": "browser-helper",
+                },
+            )
 
     if route == "micro-utilities":
         try:
@@ -189,8 +254,11 @@ def route_user_message(message: str) -> RouterResult:
                     "type": "chat_reply",
                     "provider": reply.provider,
                     "model": reply.model,
+                    "error_code": reply.error_code,
+                    "display_name": reply.display_name,
                     "fallback_from": "micro-utilities",
                 },
+                loading=reply.loading,
             )
 
         return RouterResult(
@@ -214,5 +282,8 @@ def route_user_message(message: str) -> RouterResult:
             "type": "chat_reply",
             "provider": reply.provider,
             "model": reply.model,
+            "error_code": reply.error_code,
+            "display_name": reply.display_name,
         },
+        loading=reply.loading,
     )
