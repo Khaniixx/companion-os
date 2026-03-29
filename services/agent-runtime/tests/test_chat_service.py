@@ -207,7 +207,7 @@ def test_generate_companion_reply_returns_fallback_when_provider_errors(
     _patch_active_pack(monkeypatch)
     monkeypatch.setattr(
         "app.chat.service.get_chat_provider",
-        lambda: ExplodingProvider(),
+        ExplodingProvider,
     )
     monkeypatch.setattr(
         "app.chat.service.inspect_ollama_model",
