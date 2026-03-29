@@ -91,37 +91,37 @@ def format_in_character_error(
 
     if error_code in {"model_not_ready", "model_loading"}:
         return (
-            f"I am {speaking_style} warming up my local thoughts. "
-            "Give me a moment, then ask again."
+            f"I am {speaking_style} gathering my local thoughts. "
+            "Stay with me a moment, then ask again."
         )
     if error_code == "model_missing":
         return (
             f"I am {speaking_style} missing my local model, {selected_model}. "
-            "Open settings to choose another local model or download this one first."
+            "Open settings to choose another local model, or download this one first."
         )
     if error_code == "model_unavailable":
         return (
-            f"I am {speaking_style} having trouble shaping a reply from my local model. "
-            "Try again in a moment."
+            f"I am {speaking_style} losing the thread with my local model for a moment. "
+            "Try me again in a breath."
         )
     if error_code == "browser_unavailable":
         return (
-            f"I am {direct_style} having trouble reaching the browser right now. "
-            "Try again in a moment."
+            f"I am {direct_style} having trouble reaching the browser just now. "
+            "Give me a moment and try again."
         )
     if error_code == "app_launch_failed":
         return (
-            f"I am {direct_style} having trouble opening that app right now. "
-            "Please try again in a moment."
+            f"I am {direct_style} having trouble opening that app just now. "
+            "Give me a moment and try again."
         )
     if error_code == "skill_failed":
         return (
-            f"I am {speaking_style} sorry, that action did not land cleanly. "
+            f"I am {speaking_style} sorry, that action slipped out of my hands. "
             "Please try once more."
         )
 
     return (
-        f"I am {speaking_style} sorry, something went wrong for a moment. "
+        f"I am {speaking_style} sorry, I lost the thread for a moment. "
         "Please try again."
     )
 

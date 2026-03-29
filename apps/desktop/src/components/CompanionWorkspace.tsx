@@ -57,7 +57,7 @@ type ChatModelStatus = {
 
 const DEFAULT_COMPANION_NAME = "Aster";
 const DEFAULT_STARTER_MESSAGE =
-  "I am awake locally and keeping this desk ready for you.";
+  "I am here, awake locally, and ready to keep the desk steady with you.";
 const starterMessages: CompanionMessage[] = [
   {
     id: 1,
@@ -979,7 +979,7 @@ export function CompanionWorkspace() {
       }
       await handleResponseAction(data.action, userText);
     } catch {
-      const packName = activePackRef.current?.display_name ?? "Companion";
+      const packName = activePackRef.current?.display_name ?? DEFAULT_COMPANION_NAME;
       await waitForPacing(MIN_THINKING_DELAY_MS);
       appendCompanionMessage(
         `${packName} is having trouble reaching the local runtime right now. Please try again in a moment.`,
@@ -1153,7 +1153,8 @@ export function CompanionWorkspace() {
           <h1>{companionTitle} stays close.</h1>
           <p>
             One local companion, one continuous thread of conversation, and one
-            workspace for chat, tools, and small reactions throughout the day.
+            desk for quiet help, useful actions, and small reactions throughout
+            the day.
           </p>
           <div className="stage-panel__rail" aria-label="Companion readiness">
             <div className="stage-panel__rail-item">
@@ -1191,10 +1192,10 @@ export function CompanionWorkspace() {
         <div className="chat-panel__header">
           <div className="chat-panel__header-copy">
             <span className="eyebrow">Conversation</span>
-            <h2>Keep the local thread nearby</h2>
+            <h2>Stay in step with {companionTitle}</h2>
             <p>
-              Ask for help, launch something, or pick up where the companion
-              left off without leaving the desk.
+              Ask for help, start something useful, or pick up the thread
+              without losing the feeling that the companion is still nearby.
             </p>
           </div>
           <div className="chat-panel__header-actions">
@@ -1387,10 +1388,10 @@ export function CompanionWorkspace() {
           {showsStarterWelcome ? (
             <article className="welcome-desk" aria-label="First hello">
               <span className="eyebrow">First hello</span>
-              <h4>{companionTitle} is awake locally.</h4>
+              <h4>{companionTitle} is here and ready.</h4>
               <p>
-                Start with a quick question, ask for something useful, or let
-                the companion ease into the room with you.
+                Start with a small question, ask for something useful, or let
+                {` ${companionTitle}`} settle in beside you for a moment.
               </p>
               <div className="welcome-desk__meta">
                 <span>{selectedModel}</span>
@@ -1406,7 +1407,7 @@ export function CompanionWorkspace() {
                 key={message.id}
               >
                 <span className="message__sender">
-                  {message.sender === "companion" ? "Companion" : "You"}
+                  {message.sender === "companion" ? companionTitle : "You"}
                 </span>
                 <p>{message.text}</p>
               </article>
@@ -1419,10 +1420,10 @@ export function CompanionWorkspace() {
               disabled={isSending}
               type="button"
               onClick={() => {
-                void submitMessage("What can you help me with right now?");
+                void submitMessage("How can we start today?");
               }}
             >
-              What can you help with?
+              How can we start?
             </button>
             <button
               className="quick-action-button"
@@ -1448,12 +1449,12 @@ export function CompanionWorkspace() {
 
           <form className="composer" onSubmit={handleSubmit}>
             <label className="composer__label" htmlFor="chat-input">
-              Type a message and send it to the local companion runtime.
+              Write to {companionTitle} and keep the local thread moving.
             </label>
             <textarea
               id="chat-input"
               className="composer__input"
-              placeholder="Ask the companion to do something..."
+              placeholder={`Ask ${companionTitle} for help, a task, or a small check-in...`}
               rows={4}
               value={draft}
               disabled={isSending}

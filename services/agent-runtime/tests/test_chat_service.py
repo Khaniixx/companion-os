@@ -145,7 +145,7 @@ def test_model_status_reports_missing_model_without_exception(
         "loaded": False,
         "message": (
             "I am softly missing my local model, qwen2.5-coder:7b-instruct. "
-            "Open settings to choose another local model or download this one first."
+            "Open settings to choose another local model, or download this one first."
         ),
     }
     assert result.ok is False
@@ -195,7 +195,7 @@ def test_generate_companion_reply_returns_loading_message_during_startup(
     assert result.ok is False
     assert result.loading is True
     assert result.error_code == "model_loading"
-    assert "warming up my local thoughts" in result.message
+    assert "gathering my local thoughts" in result.message
     assert provider_called["value"] is False
 
 
@@ -225,8 +225,8 @@ def test_generate_companion_reply_returns_fallback_when_provider_errors(
     assert result.loading is False
     assert result.error_code == "model_unavailable"
     assert result.message == (
-        "I am softly having trouble shaping a reply from my local model. "
-        "Try again in a moment."
+        "I am softly losing the thread with my local model for a moment. "
+        "Try me again in a breath."
     )
 
 

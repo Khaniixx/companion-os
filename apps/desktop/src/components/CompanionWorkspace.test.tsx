@@ -451,7 +451,7 @@ function createFetchMock(
           loaded: false,
           message:
             `I am softly missing my local model, ${selectedModel}. ` +
-            "Open settings to choose another local model or download this one first.",
+            "Open settings to choose another local model, or download this one first.",
         };
         return Promise.resolve(
           new Response(
@@ -765,7 +765,7 @@ function createFetchMock(
                 route: "companion-chat",
                 user_message: "hello",
                 assistant_response:
-                  "I am softly getting my local thoughts in order. Give me a moment, then ask again.",
+                  "I am softly gathering my local thoughts. Stay with me a moment, then ask again.",
                 action: {
                   type: "chat_reply",
                   provider: "ollama",
@@ -862,7 +862,7 @@ function createFetchMock(
                   route: "app-launcher",
                   user_message: body.message,
                   assistant_response:
-                    "I can open Spotify once you allow app launches in Companion OS.",
+                    "I can open Spotify as soon as app launches are allowed in Companion OS.",
                   action: {
                     type: "permission_required",
                     permission: "open_app",
@@ -937,14 +937,14 @@ describe("CompanionWorkspace", () => {
 
     render(<CompanionWorkspace />);
 
-    await user.type(screen.getByLabelText(/Type a message/i), "hello");
+    await user.type(screen.getByLabelText(/Write to/i), "hello");
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
     await waitFor(() => {
       expect(screen.getByText("talking")).toBeInTheDocument();
     }, { timeout: 2500 });
     expect(
-      screen.getByText(/getting my local thoughts in order/i),
+      screen.getByText(/gathering my local thoughts/i),
     ).toBeInTheDocument();
 
     await waitFor(() => {
@@ -977,13 +977,14 @@ describe("CompanionWorkspace", () => {
 
     render(<CompanionWorkspace />);
 
-    expect(await screen.findByText("Sunrise is awake locally.")).toBeInTheDocument();
+    expect(await screen.findByText("Sunrise is here and ready.")).toBeInTheDocument();
     expect(
-      screen.getByText("Start with a quick question, ask for something useful, or let the companion ease into the room with you."),
+      screen.getByText("Start with a small question, ask for something useful, or let Sunrise settle in beside you for a moment."),
     ).toBeInTheDocument();
     expect(screen.getAllByText("Runtime ready").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Sunrise").length).toBeGreaterThan(0);
     expect(
-      screen.getByRole("button", { name: "What can you help with?" }),
+      screen.getByRole("button", { name: "How can we start?" }),
     ).toBeInTheDocument();
   });
 
@@ -1077,7 +1078,7 @@ describe("CompanionWorkspace", () => {
 
     expect(
       await screen.findByText(
-        "I can open Spotify once you allow app launches in Companion OS.",
+        "I can open Spotify as soon as app launches are allowed in Companion OS.",
       ),
     ).toBeInTheDocument();
     expect(

@@ -66,7 +66,7 @@ def test_route_user_message_uses_fuzzy_app_match_for_typos(
 
     assert result.ok is False
     assert result.route == "app-launcher"
-    assert "allow app launches" in result.assistant_response
+    assert "app launches are allowed" in result.assistant_response
     assert result.action == {
         "type": "permission_required",
         "permission": "open_app",
@@ -87,7 +87,7 @@ def test_route_user_message_returns_permission_prompt_for_app_launcher(
     assert result.ok is False
     assert result.route == "app-launcher"
     assert result.user_message == "open Spotify"
-    assert "allow app launches" in result.assistant_response
+    assert "app launches are allowed" in result.assistant_response
     assert result.action == {
         "type": "permission_required",
         "permission": "open_app",
@@ -107,7 +107,7 @@ def test_route_user_message_returns_browser_permission_prompt(
 
     assert result.ok is False
     assert result.route == "browser-helper"
-    assert "allow browser access" in result.assistant_response
+    assert "browser access is allowed" in result.assistant_response
     assert result.action == {
         "type": "permission_required",
         "permission": "open_url",
@@ -182,7 +182,7 @@ def test_route_user_message_falls_back_to_chat_when_micro_utility_parse_fails(
                 "provider": "ollama",
                 "model": "llama3.1:8b-instruct",
                 "error_code": None,
-                "display_name": "Companion",
+                "display_name": "Aster",
                 "loading": False,
             },
         )(),
@@ -198,7 +198,7 @@ def test_route_user_message_falls_back_to_chat_when_micro_utility_parse_fails(
         "provider": "ollama",
         "model": "llama3.1:8b-instruct",
         "error_code": None,
-        "display_name": "Companion",
+        "display_name": "Aster",
         "fallback_from": "micro-utilities",
     }
 
@@ -220,7 +220,7 @@ def test_route_user_message_uses_chat_fallback(
                 "provider": "ollama",
                 "model": "llama3.1:8b-instruct",
                 "error_code": None,
-                "display_name": "Companion",
+                "display_name": "Aster",
                 "loading": False,
             },
         )(),
@@ -236,7 +236,7 @@ def test_route_user_message_uses_chat_fallback(
         "provider": "ollama",
         "model": "llama3.1:8b-instruct",
         "error_code": None,
-        "display_name": "Companion",
+        "display_name": "Aster",
     }
 
 
