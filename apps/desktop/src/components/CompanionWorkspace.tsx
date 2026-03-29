@@ -1101,6 +1101,29 @@ export function CompanionWorkspace() {
     () => activePack?.display_name ?? "Companion",
     [activePack],
   );
+  const runtimeReadinessLabel = installerCompleted
+    ? "Runtime ready"
+    : "Runtime needs attention";
+  const modelReadinessLabel =
+    modelStatus?.state === "ready"
+      ? "Local model ready"
+      : modelStatus?.state === "loading"
+        ? "Local model warming"
+        : modelStatus?.state === "missing"
+          ? "Model needs download"
+          : "Checking local model";
+  const companionStateSummary =
+    companionState === "idle"
+      ? "Calm and ready to stay nearby."
+      : companionState === "listening"
+        ? "Listening for the next thing you need."
+        : companionState === "thinking"
+          ? "Working through the local runtime."
+          : companionState === "talking"
+            ? "Answering in the foreground."
+            : companionState === "reaction"
+              ? "Reacting to a timer, shortcut, or cue."
+              : "Needs a little help from the local runtime.";
 
   return (
     <main
@@ -1119,14 +1142,26 @@ export function CompanionWorkspace() {
       >
         <div className="stage-panel__copy">
           <span className="eyebrow">Companion OS</span>
-          <h1>One companion, shifting state with your attention.</h1>
+          <h1>{companionTitle} stays close.</h1>
           <p>
-            The desktop shell now keeps one calm state machine: idle when the
-            room is quiet, listening while you type, thinking while the runtime
-            works, talking when a reply comes back, reacting briefly when a
-            timer or shortcut lands, and moving into error only when the local
-            runtime genuinely needs help.
+            One local companion, one continuous thread of conversation, and one
+            workspace for chat, tools, and small reactions throughout the day.
           </p>
+          <div className="stage-panel__rail" aria-label="Companion readiness">
+            <div className="stage-panel__rail-item">
+              <span className="stage-panel__rail-label">Identity</span>
+              <strong>{companionTitle}</strong>
+            </div>
+            <div className="stage-panel__rail-item">
+              <span className="stage-panel__rail-label">Model</span>
+              <strong>{modelReadinessLabel}</strong>
+            </div>
+            <div className="stage-panel__rail-item">
+              <span className="stage-panel__rail-label">Runtime</span>
+              <strong>{runtimeReadinessLabel}</strong>
+            </div>
+          </div>
+          <p className="stage-panel__note">{companionStateSummary}</p>
         </div>
         {activeStreamEvent ? (
           <article className="stream-bubble" aria-live="polite">
@@ -1146,9 +1181,13 @@ export function CompanionWorkspace() {
 
       <aside className="chat-panel">
         <div className="chat-panel__header">
-          <div>
-            <span className="eyebrow">Console</span>
-            <h2>Local companion chat</h2>
+          <div className="chat-panel__header-copy">
+            <span className="eyebrow">Conversation</span>
+            <h2>Keep the local thread nearby</h2>
+            <p>
+              Ask for help, launch something, or pick up where the companion
+              left off without leaving the desk.
+            </p>
           </div>
           <div className="chat-panel__header-actions">
             <button
@@ -1328,60 +1367,74 @@ export function CompanionWorkspace() {
           }}
         />
 
-        <div className="message-list" role="log" aria-live="polite">
-          {messages.map((message) => (
-            <article
-              className={`message message--${message.sender}`}
-              key={message.id}
+        <section className="conversation-shell" aria-label="Conversation surface">
+          <div className="conversation-shell__header">
+            <div>
+              <span className="eyebrow">Recent exchange</span>
+              <h3>{companionTitle} keeps the thread warm</h3>
+            </div>
+            <span className="conversation-shell__status">{companionStateSummary}</span>
+          </div>
+
+          <div className="message-list" role="log" aria-live="polite">
+            {messages.map((message) => (
+              <article
+                className={`message message--${message.sender}`}
+                key={message.id}
+              >
+                <span className="message__sender">
+                  {message.sender === "companion" ? "Companion" : "You"}
+                </span>
+                <p>{message.text}</p>
+              </article>
+            ))}
+          </div>
+
+          <div className="quick-actions">
+            <button
+              className="quick-action-button"
+              disabled={isSending || isLoadingOpenAppPermission}
+              type="button"
+              onClick={() => {
+                void submitMessage("open Spotify");
+              }}
             >
-              <span className="message__sender">
-                {message.sender === "companion" ? "Companion" : "You"}
-              </span>
-              <p>{message.text}</p>
-            </article>
-          ))}
-        </div>
+              Open Spotify
+            </button>
+            <button
+              className="quick-action-button"
+              disabled={isSending || isLoadingOpenUrlPermission}
+              type="button"
+              onClick={() => {
+                void submitMessage("search for Companion OS local setup");
+              }}
+            >
+              Search Companion OS
+            </button>
+          </div>
 
-        <div className="quick-actions">
-          <button
-            className="quick-action-button"
-            disabled={isSending || isLoadingOpenAppPermission}
-            type="button"
-            onClick={() => {
-              void submitMessage("open Spotify");
-            }}
-          >
-            Open Spotify
-          </button>
-          <button
-            className="quick-action-button"
-            disabled={isSending || isLoadingOpenUrlPermission}
-            type="button"
-            onClick={() => {
-              void submitMessage("search for Companion OS local setup");
-            }}
-          >
-            Search Companion OS
-          </button>
-        </div>
-
-        <form className="composer" onSubmit={handleSubmit}>
-          <label className="composer__label" htmlFor="chat-input">
-            Type a message and send it to the local companion runtime.
-          </label>
-          <textarea
-            id="chat-input"
-            className="composer__input"
-            placeholder="Ask the companion to do something..."
-            rows={4}
-            value={draft}
-            disabled={isSending}
-            onChange={(event) => handleDraftChange(event.target.value)}
-          />
-          <button className="composer__submit" disabled={isSending} type="submit">
-            {isSending ? "Waiting for reply..." : "Send message"}
-          </button>
-        </form>
+          <form className="composer" onSubmit={handleSubmit}>
+            <label className="composer__label" htmlFor="chat-input">
+              Type a message and send it to the local companion runtime.
+            </label>
+            <textarea
+              id="chat-input"
+              className="composer__input"
+              placeholder="Ask the companion to do something..."
+              rows={4}
+              value={draft}
+              disabled={isSending}
+              onChange={(event) => handleDraftChange(event.target.value)}
+            />
+            <button
+              className="composer__submit"
+              disabled={isSending}
+              type="submit"
+            >
+              {isSending ? "Waiting for reply..." : "Send message"}
+            </button>
+          </form>
+        </section>
       </aside>
     </main>
   );
