@@ -151,14 +151,22 @@ function getDependencyStateLabel(dependency: DependencyStatus): string {
 
 function getDependencySummary(dependency: DependencyStatus): string {
   if (dependency.installed) {
-    return dependency.version ?? "Installed";
+    return dependency.version ?? "Ready on this PC";
+  }
+
+  const sizeSummary = dependency.approx_size_mb
+    ? ` Approx. ${dependency.approx_size_mb} MB.`
+    : "";
+
+  if (dependency.id === "ollama") {
+    return `Needed for local, open-source chat on this PC.${sizeSummary}`;
   }
 
   if (dependency.approx_size_mb) {
-    return `We need to install ${dependency.label} (approx. ${dependency.approx_size_mb} MB).`;
+    return `Companion OS needs ${dependency.label} to finish setup on this device.${sizeSummary}`;
   }
 
-  return `We need to install ${dependency.label}.`;
+  return `Companion OS needs ${dependency.label} to finish setup on this device.`;
 }
 
 function getRetryLabel(stepId: InstallerStepId): string {
@@ -172,6 +180,35 @@ function getRetryLabel(stepId: InstallerStepId): string {
     return "Retry model setup";
   }
   return "Retry connection";
+}
+
+function getStepTimeHint(stepId: InstallerStepId): string {
+  if (stepId === "download") {
+    return "Varies";
+  }
+  if (stepId === "install-openclaw") {
+    return "~30 sec";
+  }
+  if (stepId === "configure-ai") {
+    return "~1 min";
+  }
+  return "~10 sec";
+}
+
+function getSetupPromise(stepId: InstallerStepId | null): string {
+  if (stepId === "download") {
+    return "Setting up the pieces that let your companion wake up locally.";
+  }
+  if (stepId === "install-openclaw") {
+    return "Preparing the local runtime space your companion will live in.";
+  }
+  if (stepId === "configure-ai") {
+    return "Choosing the local voice and brain your companion will use first.";
+  }
+  if (stepId === "start-connect") {
+    return "Bringing everything together so the companion can appear on your desk.";
+  }
+  return "Preparing a calm local-first setup for your companion.";
 }
 
 export function InstallOpenClaw({
@@ -378,12 +415,14 @@ export function InstallOpenClaw({
   if (!installerStatus) {
     return (
       <main className="installer-shell installer-shell--loading">
-        <section className="installer-hero">
-          <div className="installer-copy">
-            <span className="eyebrow">OpenClaw Setup</span>
-            <h1>Loading your local setup.</h1>
-            <p>Checking whether this PC already has a saved OpenClaw install.</p>
+        <section className="installer-stage installer-stage--loading">
+          <div className="installer-emblem" aria-hidden="true">
+            <span className="installer-emblem__ring" />
+            <span className="installer-emblem__core" />
           </div>
+          <span className="eyebrow">OpenClaw Setup</span>
+          <h1>Loading your local setup.</h1>
+          <p>Checking whether this PC already has a saved OpenClaw install.</p>
         </section>
       </main>
     );
@@ -392,6 +431,9 @@ export function InstallOpenClaw({
   const dependencyChecks = installerStatus.environment.checks;
   const progressLabel = getProgressLabel(installerStatus, activeStepId);
   const recoveryInstructions = currentStep?.recovery_instructions ?? [];
+  const visibleDependencyChecks = dependencyChecks.filter(
+    (dependency) => !dependency.installed,
+  );
   const canConfigureModel =
     installerStatus.openclaw.installed &&
     !installerStatus.connection.connected &&
@@ -404,18 +446,21 @@ export function InstallOpenClaw({
 
   return (
     <main className="installer-shell">
-      <section className="installer-hero">
-        <div className="installer-copy">
-          <span className="eyebrow">OpenClaw Setup</span>
-          <h1>Bring the companion online with a local-first install.</h1>
-          <p>
-            Companion OS follows four clear steps: Download, Install OpenClaw,
-            Configure AI, then Start & Connect. We save progress after every
-            transition, so you can always resume from where you left off.
-          </p>
+      <section className="installer-stage">
+        <div className="installer-emblem" aria-hidden="true">
+          <span className="installer-emblem__ring" />
+          <span className="installer-emblem__core" />
         </div>
+        <span className="eyebrow">OpenClaw Setup</span>
+        <h1>Wake your companion on this PC.</h1>
+        <p className="installer-copy__lead">
+          {getSetupPromise(activeStepId ?? currentStep?.id ?? null)}
+        </p>
+        <p className="installer-stage__reassurance">
+          Local-first by default, with saved progress at every step.
+        </p>
 
-        <div className="installer-progress-card">
+        <div className="installer-progress-card installer-progress-card--stage">
           <div className="installer-progress-card__header">
             <span>{progressLabel}</span>
             <strong>{progressValue}%</strong>
@@ -427,16 +472,15 @@ export function InstallOpenClaw({
             />
           </div>
           <p>{statusMessage}</p>
-          {currentStep?.status === "failed" || currentStep?.status === "needs_action" ? (
+          {(currentStep?.status === "failed" ||
+            currentStep?.status === "needs_action") && (
             <p className="installer-error" role="status">
               We paused safely. Use the guidance below to continue.
             </p>
-          ) : null}
+          )}
         </div>
-      </section>
 
-      <section className="installer-grid">
-        <div className="installer-steps" aria-label="Installer steps">
+        <ol className="installer-timeline" aria-label="Installer steps">
           {STEP_SEQUENCE.map((stepId, index) => {
             const step = installerStatus.steps[stepId];
             const renderedStatus =
@@ -447,34 +491,48 @@ export function InstallOpenClaw({
             const renderedMessage =
               activeStepId === step.id ? statusMessage : step.message;
             return (
-              <article
-                className={`installer-step installer-step--${renderedStatus}`}
+              <li
+                className={`installer-timeline__item installer-timeline__item--${renderedStatus}`}
                 key={step.id}
               >
-                <div className="installer-step__index">{index + 1}</div>
-                <div className="installer-step__body">
-                  <div className="installer-step__header">
-                    <h2>{step.title}</h2>
-                    <span
-                      className={`installer-step__badge installer-step__badge--${renderedStatus}`}
-                    >
-                      {getBadgeLabel(renderedStatus)}
-                    </span>
-                  </div>
-                  <p>{step.description}</p>
-                  <p className="installer-step__message">{renderedMessage}</p>
+                <span
+                  className={`installer-timeline__marker installer-timeline__marker--${renderedStatus}`}
+                  aria-hidden="true"
+                >
+                  {renderedStatus === "complete"
+                    ? "✓"
+                    : renderedStatus === "active"
+                      ? ""
+                      : index + 1}
+                </span>
+                <div className="installer-timeline__copy">
+                  <strong>{step.title}</strong>
+                  {(renderedStatus === "active" ||
+                    renderedStatus === "failed" ||
+                    renderedStatus === "needs_action") && (
+                    <p>{renderedMessage}</p>
+                  )}
                 </div>
-              </article>
+                <span
+                  className={`installer-timeline__meta installer-timeline__meta--${renderedStatus}`}
+                >
+                  {renderedStatus === "pending"
+                    ? getStepTimeHint(step.id)
+                    : getBadgeLabel(renderedStatus)}
+                </span>
+              </li>
             );
           })}
-        </div>
+        </ol>
+      </section>
 
-        <aside className="installer-sidebar">
+      <section className="installer-support-grid">
+        <div className="installer-support-column">
           <section className="installer-panel">
             <span className="eyebrow">Environment</span>
-            <h2>Checking your system</h2>
+            <h2>This PC still needs</h2>
             <div className="installer-dependency-list">
-              {dependencyChecks.map((dependency) => (
+              {visibleDependencyChecks.map((dependency) => (
                 <article className="installer-dependency" key={dependency.id}>
                   <div className="installer-dependency__header">
                     <strong>{dependency.label}</strong>
@@ -490,6 +548,11 @@ export function InstallOpenClaw({
                 </article>
               ))}
             </div>
+            {visibleDependencyChecks.length === 0 ? (
+              <p className="installer-panel__hint">
+                This PC already has everything needed for the next step.
+              </p>
+            ) : null}
             <p className="installer-panel__hint">
               Platform: <strong>{installerStatus.environment.platform}</strong>
             </p>
@@ -511,7 +574,8 @@ export function InstallOpenClaw({
               </ol>
             ) : (
               <p className="installer-panel__hint">
-                Companion OS keeps moving automatically whenever it is safe to do so.
+                Leave this window open. Companion OS keeps moving automatically
+                whenever it is safe to do so.
               </p>
             )}
             <div className="installer-panel__actions">
@@ -541,10 +605,12 @@ export function InstallOpenClaw({
               ) : null}
             </div>
           </section>
+        </div>
 
+        <aside className="installer-sidebar">
           <section className="installer-panel">
             <span className="eyebrow">Configure AI</span>
-            <h2>Local model by default</h2>
+            <h2>Choose the first local personality core</h2>
             <label className="installer-label" htmlFor="default-model">
               Default model
             </label>
@@ -566,7 +632,8 @@ export function InstallOpenClaw({
               default product flow.
             </p>
             <p className="installer-panel__hint">
-              If you are unsure, keep the recommended model and continue.
+              If you are unsure, keep the recommended model and continue. You can
+              change it later in settings.
             </p>
             <button
               className="installer-primary-button"
