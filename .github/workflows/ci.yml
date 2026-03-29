@@ -39,6 +39,29 @@ jobs:
         run: npm run build
         working-directory: apps/desktop
 
+  desktop-frontend-audit:
+    name: Desktop Frontend Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        run: npm ci
+        working-directory: apps/desktop
+
+      - name: Audit desktop dependencies
+        run: npm audit --audit-level=moderate
+        working-directory: apps/desktop
+
   runtime:
     name: Agent Runtime
     runs-on: ubuntu-latest
@@ -79,3 +102,24 @@ jobs:
 
       - name: Resolve desktop cargo metadata
         run: cargo metadata --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --format-version 1
+
+  desktop-rust-audit:
+    name: Desktop Rust Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify locked Rust dependency graph
+        run: cargo metadata --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --format-version 1
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Audit desktop Rust dependencies
+        run: cargo audit
+        working-directory: apps/desktop/src-tauri

@@ -1,0 +1,16 @@
+# Temporary RustSec policy for the desktop shell.
+#
+# Companion OS is currently shipping as a Windows-first desktop release.
+# This advisory remains tracked because the lockfile still includes the
+# Linux GTK/WebKit path through Tauri/Wry, even though Linux packaging is
+# not a release target yet.
+#
+# RUSTSEC-2024-0429 is currently transitive through:
+# tauri 2.10.3 -> tauri-runtime-wry 2.10.1 -> wry 0.54.4
+# -> webkit2gtk 2.0.2 -> gtk 0.18.2 -> glib 0.18.5
+#
+# The fix requires the upstream Tauri/Wry Linux GTK stack to move to glib >= 0.20.
+# Remove this ignore as soon as upstream releases that dependency path.
+
+[advisories]
+ignore = ["RUSTSEC-2024-0429"]

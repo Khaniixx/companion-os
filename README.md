@@ -2,6 +2,14 @@
 
 Companion OS is an open‑source project to build a **persistent AI companion** that lives on your desktop, helps you with real tasks, reacts contextually and performs on stream.  The project unifies an agentic backend with an embodied character interface so you get one identity that adapts to different contexts—coding, gaming, streaming or casual use—without switching modes.
 
+## Current Release Scope
+
+Companion OS is currently a Windows-first desktop MVP.
+
+- Windows is the only release target we actively package and validate right now.
+- macOS and Linux are experimental targets in the current branch. They remain under validation and are not release-ready.
+- The Linux GTK/WebKit dependency chain is still tracked because Tauri/Wry transitively resolves `glib 0.18.5`, so cross-platform packaging remains intentionally deferred until that upstream path improves and real machine validation is complete.
+
 ## Vision
 
 Companion OS aims to be the next step beyond traditional AI assistants.  Instead of a faceless chatbot or a simple desktop pet, it provides a presence that:
@@ -90,24 +98,72 @@ Useful local commands:
 
 Feature-specific docs live under [docs/README.md](./docs/README.md).
 
+## Platform Requirements
+
+The current desktop MVP is documented and validated as a Windows release:
+
+- Supported release target: Windows 10 22H2 or Windows 11.
+- Required runtime/platform pieces: WebView2 runtime and Visual Studio 2022 Build Tools with the C++ workload for local Rust/Tauri builds.
+- Experimental targets: macOS and Linux. Keep them under explicit validation and upstream tracking until packaging and runtime behavior are confirmed on real machines.
+
+Minimum hardware guidance for a local-model-first setup:
+
+- CPU: 4 modern cores minimum, 8 recommended.
+- Memory: 8 GB RAM minimum for the desktop shell, 16 GB recommended for local models.
+- Storage: 10 GB free minimum, 25 GB recommended when pulling local model weights.
+- GPU: optional for the companion shell itself, but local-model performance improves substantially with supported acceleration.
+
+## Packaging And Security
+
+The repository now treats dependency and packaging checks as part of the shipped product, not optional maintenance:
+
+- CI runs `npm audit` for the desktop frontend.
+- CI runs `cargo audit` against the locked Tauri dependency graph.
+- CI validates Tauri bundle creation for the current Windows release target through a dedicated packaging workflow.
+- macOS and Linux packaging remain experimental and tracked, but they are not release gates in the current branch.
+
+One upstream Rust advisory remains tracked:
+
+- `RUSTSEC-2024-0429` affects `glib < 0.20.0`.
+- The current desktop lockfile still resolves `glib 0.18.5` through the Linux Tauri stack:
+  `tauri 2.10.3 -> tauri-runtime-wry 2.10.1 -> wry 0.54.4 -> webkit2gtk 2.0.2 -> gtk 0.18.2 -> glib 0.18.5`
+- The repository now documents that path explicitly in [audit.toml](./apps/desktop/src-tauri/audit.toml). Remove the temporary ignore as soon as the upstream Tauri/Wry GTK stack moves to `glib >= 0.20.0`.
+
+## Installation Troubleshooting
+
+If local installation or packaging fails, these are the first checks to make:
+
+- `link.exe not found` on Windows:
+  Install Visual Studio 2022 Build Tools and include the C++ workload (`Microsoft.VisualStudio.Workload.VCTools`). A plain Rust install is not enough for the `x86_64-pc-windows-msvc` target.
+- `cargo audit` cannot run locally on Windows:
+  This usually points to the same missing MSVC toolchain. Run it from a Developer Command Prompt or use the CI audit job until the local machine is configured.
+- Transparent overlay looks wrong:
+  Update GPU drivers, confirm desktop transparency is enabled, and test with the active compositor or window manager. Some Linux environments may flatten transparency or shadow behavior differently.
+- Local chat model is missing or unavailable:
+  Reopen the installer or settings surface, select an available local model, and make sure Ollama is installed and the selected model has been pulled locally.
+
+Future platform note:
+
+- Linux and macOS packaging issues should be tracked separately from the Windows release path until those experimental targets are promoted into the supported release matrix.
+
 ## Desktop Installation Flow
 
 The desktop onboarding flow should remain consistent across product and implementation work:
 
-1. Environment Check
-2. Prepare Prerequisites
-3. Install OpenClaw
-4. Configure AI using a local, openâ€‘source model by default
-5. Start & Connect
+1. Download
+2. Install OpenClaw
+3. Configure AI using a local, open-source model by default
+4. Start & Connect
 
 Core features should work without requiring API keys during this default path.
 
 The installer is expected to be resumable and product-safe:
 
 - Save installer progress locally so a restart resumes from the current step instead of starting over.
-- Detect Node.js, Rust, the Windows C++ / MSVC toolchain, and the local model runtime dependencies required for OpenClaw.
+- Detect Node.js, Rust, the Windows C++ / MSVC toolchain where required, and the local model runtime dependencies required for OpenClaw.
 - Attempt silent setup where it is reliable, and switch to guided repair steps with exact next actions when manual intervention is needed.
 - Show clear per-step states for pending, active, complete, failed, and needs action.
+- Stop safely on timeouts or installer hangs, then expose clear Retry and Repair paths instead of leaving the user stranded.
 - Reopen directly into the companion when setup is already complete.
 
 ## MVP Local Model Flow

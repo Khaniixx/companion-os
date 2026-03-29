@@ -1,0 +1,46 @@
+name: Tauri Packaging
+
+on:
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "packages/**"
+      - ".github/workflows/tauri-packaging.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    name: Bundle (windows-latest)
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install desktop dependencies
+        run: npm ci
+        working-directory: apps/desktop
+
+      - name: Build Tauri bundle
+        run: npm run tauri build
+        working-directory: apps/desktop
+
+      - name: Upload bundle artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-bundle-windows-latest
+          path: apps/desktop/src-tauri/target/release/bundle
+          if-no-files-found: error
