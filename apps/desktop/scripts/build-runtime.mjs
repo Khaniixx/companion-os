@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../..");
 const runtimeDir = path.join(repoRoot, "services", "agent-runtime");
-const runtimePython = path.join(runtimeDir, ".venv", "Scripts", "python.exe");
 const binariesDir = path.join(repoRoot, "apps", "desktop", "src-tauri", "binaries");
 const pyinstallerWorkDir = path.join(
   repoRoot,
@@ -38,15 +37,46 @@ function run(command, args, options = {}) {
   }
 }
 
+function resolvePoetryPython() {
+  const result = spawnSync("poetry", ["env", "info", "--path"], {
+    cwd: runtimeDir,
+    encoding: "utf-8",
+    shell: process.platform === "win32",
+  });
+
+  if (result.status !== 0) {
+    return null;
+  }
+
+  const envPath = result.stdout.trim();
+  if (!envPath) {
+    return null;
+  }
+
+  const poetryPython = path.join(envPath, "Scripts", "python.exe");
+  return existsSync(poetryPython) ? poetryPython : null;
+}
+
+function resolveRuntimePython() {
+  const inProjectPython = path.join(runtimeDir, ".venv", "Scripts", "python.exe");
+  if (existsSync(inProjectPython)) {
+    return inProjectPython;
+  }
+
+  return resolvePoetryPython();
+}
+
 if (process.platform !== "win32") {
   console.log("Skipping bundled runtime build outside Windows.");
   process.exit(0);
 }
 
-if (!existsSync(runtimePython)) {
+const runtimePython = resolveRuntimePython();
+
+if (!runtimePython) {
   throw new Error(
-    `Could not find the runtime virtualenv interpreter at ${runtimePython}. ` +
-      "Set up the runtime environment before building the desktop package.",
+    "Could not find a Python interpreter for the agent runtime. " +
+      "Create the runtime Poetry environment with dev dependencies before building the desktop package.",
   );
 }
 
