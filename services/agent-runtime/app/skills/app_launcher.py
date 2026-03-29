@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from threading import Lock
 from typing import Final, Literal, NotRequired, TypedDict, cast
 
+from app.runtime_paths import runtime_data_path
 from app.tools.open_app import OpenAppResult, open_app
 
 
 SupportedAppName = Literal["spotify", "discord"]
-APP_LAUNCHER_STATE_FILE = (
-    Path(__file__).resolve().parents[1] / "data" / "app_launcher_state.json"
-)
+APP_LAUNCHER_STATE_FILE = runtime_data_path("app_launcher_state.json")
 SUPPORTED_APP_CATALOG: Final[
     dict[SupportedAppName, dict[str, str | list[str]]]
 ] = {

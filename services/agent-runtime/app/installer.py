@@ -14,9 +14,10 @@ from typing import Final, Literal, TypedDict
 
 from app.model_catalog import RECOMMENDED_LOCAL_MODEL, SUPPORTED_LOCAL_MODELS
 from app.preferences import get_selected_model, set_selected_model
+from app.runtime_paths import runtime_data_path
 
-INSTALLER_STATE_FILE = Path(__file__).resolve().parents[1] / "data" / "installer_state.json"
-OPENCLAW_INSTALL_DIR = Path(__file__).resolve().parents[1] / "data" / "openclaw"
+INSTALLER_STATE_FILE = runtime_data_path("installer_state.json")
+OPENCLAW_INSTALL_DIR = runtime_data_path("openclaw")
 INSTALL_COMMAND_TIMEOUT_SECONDS: Final[int] = 900
 POST_INSTALL_SETTLE_SECONDS: Final[int] = 20
 POST_INSTALL_POLL_SECONDS: Final[float] = 2.0
@@ -762,6 +763,17 @@ def _download_recovery_plan(missing_labels: list[str], *, package_manager_ready:
     return instructions
 
 
+def _single_dependency_recovery_plan(
+    dependency_label: str,
+    *,
+    package_manager_ready: bool,
+) -> list[str]:
+    return _download_recovery_plan(
+        [dependency_label],
+        package_manager_ready=package_manager_ready,
+    )
+
+
 def _interrupted_recovery_plan(step_id: str) -> list[str]:
     step_title = STEP_TITLES[step_id]
     return [
@@ -1053,8 +1065,8 @@ def _download_follow_up_message(
     *,
     remaining: list[str],
 ) -> tuple[str, str, list[str]]:
-    recovery = _download_recovery_plan(
-        remaining or [dependency_label],
+    recovery = _single_dependency_recovery_plan(
+        dependency_label,
         package_manager_ready=any(
             item.get("can_auto_install", False) and not item["installed"]
             for item in _collect_environment_result()["checks"]
@@ -1097,7 +1109,7 @@ def _download_failure_response(
         else f"We could not finish installing {dependency_label}."
     )
     recovery = _download_recovery_plan(
-        remaining or [dependency_label],
+        [dependency_label],
         package_manager_ready=any(
             item.get("can_auto_install", False) and not item["installed"]
             for item in state["environment"]["checks"]
@@ -1179,9 +1191,8 @@ def download_setup() -> dict[str, object]:
 
             command = _dependency_install_command(dependency["label"])
             if command is None:
-                recovery = _download_recovery_plan(
-                    environment["missing_prerequisites"]
-                    + environment["missing_runtime_dependencies"],
+                recovery = _single_dependency_recovery_plan(
+                    dependency["label"],
                     package_manager_ready=False,
                 )
                 step = _set_step(

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from pathlib import Path
 from threading import Lock
 from typing import Final, Literal, TypedDict
 
 from app.preferences import get_memory_settings
+from app.runtime_paths import runtime_data_path
 
 
-MEMORY_STATE_FILE = Path(__file__).resolve().parents[1] / "data" / "memory_state.json"
+MEMORY_STATE_FILE = runtime_data_path("memory_state.json")
 MAX_SUMMARY_TEXT_LENGTH: Final[int] = 900
 MAX_SUMMARY_TITLE_LENGTH: Final[int] = 90
 

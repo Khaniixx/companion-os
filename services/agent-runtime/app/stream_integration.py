@@ -6,14 +6,12 @@ import hashlib
 import hmac
 import json
 from datetime import UTC, datetime
-from pathlib import Path
 from threading import Lock
 from typing import Final, Literal, TypedDict
 
+from app.runtime_paths import runtime_data_path
 
-STREAM_INTEGRATION_STATE_FILE = (
-    Path(__file__).resolve().parents[1] / "data" / "stream_integration.json"
-)
+STREAM_INTEGRATION_STATE_FILE = runtime_data_path("stream_integration.json")
 MAX_STREAM_EVENTS: Final[int] = 20
 StreamProvider = Literal["twitch", "youtube"]
 StreamEventType = Literal[

@@ -378,6 +378,12 @@ def test_download_step_returns_guided_repair_when_winget_is_missing(
         "App Installer" in instruction
         for instruction in payload["step"]["recovery_instructions"]
     )
+    assert any(
+        "Node.js" in instruction for instruction in payload["step"]["recovery_instructions"]
+    )
+    assert not any(
+        "Rust" in instruction for instruction in payload["step"]["recovery_instructions"]
+    )
 
 
 def test_download_step_explains_ollama_windows_handoff(monkeypatch) -> None:

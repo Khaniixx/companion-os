@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from threading import Lock
 from typing import Final, Literal, TypedDict
 
 from app.preferences import get_permission
+from app.runtime_paths import runtime_data_path
 from app.skills.app_launcher import launch_app_skill
 from app.skills.browser_helper import run_browser_helper
 
 
-MICRO_UTILITIES_FILE = (
-    Path(__file__).resolve().parents[1] / "data" / "micro_utilities.json"
-)
+MICRO_UTILITIES_FILE = runtime_data_path("micro_utilities.json")
 MAX_CLIPBOARD_HISTORY: Final[int] = 10
 ShortcutKind = Literal["app", "browser"]
 UtilityKind = Literal["timer", "alarm", "reminder", "todo"]

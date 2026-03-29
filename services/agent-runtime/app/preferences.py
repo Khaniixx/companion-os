@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from threading import Lock
 from typing import Final
 
 from app.model_catalog import RECOMMENDED_LOCAL_MODEL, SUPPORTED_LOCAL_MODELS
+from app.runtime_paths import runtime_data_path
 
 
-PREFERENCES_FILE = Path(__file__).resolve().parents[1] / "data" / "preferences.json"
+PREFERENCES_FILE = runtime_data_path("preferences.json")
 SUPPORTED_PERMISSIONS: Final[set[str]] = {"open_app", "open_url"}
 DEFAULT_PREFERENCES: Final[dict[str, object]] = {
     "permissions": {

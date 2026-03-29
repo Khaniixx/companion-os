@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 
+from app.runtime_paths import runtime_data_path
 
-RUNTIME_LOG_FILE = Path(__file__).resolve().parents[1] / "data" / "runtime.log"
+RUNTIME_LOG_FILE = runtime_data_path("runtime.log")
 _LOGGER_NAME = "companion_runtime"
 
 
