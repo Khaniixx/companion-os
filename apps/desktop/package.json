@@ -10,6 +10,7 @@
     "build:release": "npm run build && npm run build:runtime",
     "lint": "eslint . --ext .ts,.tsx",
     "preview": "vite preview",
+    "preview:installer": "vite --host 127.0.0.1 --port 1421 --open /installer-preview.html",
     "tauri": "tauri",
     "start": "tauri dev",
     "test": "vitest run"

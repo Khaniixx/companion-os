@@ -25,6 +25,8 @@ core product rule: one persistent companion, multiple states, no separate modes.
 
 - Backend runtime work should be covered with `pytest` and `fastapi.testclient`.
 - Desktop UI work should be covered with Vitest and React Testing Library.
+- Installer UI copy and layout changes can be reviewed locally with
+  `npm run preview:installer` from `apps/desktop`.
 - When behavior, contracts, or recovery flows change, update the relevant API doc
   and the top-level README in the same slice.
 
