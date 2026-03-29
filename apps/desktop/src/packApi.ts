@@ -9,6 +9,24 @@ export type PackCapability = {
   justification: string;
 };
 
+export type PackVoiceConfig = {
+  provider?: string;
+  voice_id?: string;
+  locale?: string | null;
+  style?: string | null;
+};
+
+export type PackAvatarConfig = {
+  icon_path?: string | null;
+  model_path?: string | null;
+  idle_animation?: string | null;
+  listening_animation?: string | null;
+  thinking_animation?: string | null;
+  talking_animation?: string | null;
+  reaction_animation?: string | null;
+  audio_cues?: Record<string, string>;
+};
+
 export type InstalledPack = {
   id: string;
   name: string;
@@ -22,6 +40,10 @@ export type InstalledPack = {
   active: boolean;
   icon_data_url: string | null;
   installed_at: string | null;
+  system_prompt?: string | null;
+  style_rules?: string[];
+  voice?: PackVoiceConfig;
+  avatar?: PackAvatarConfig;
 };
 
 export type PackListResponse = {

@@ -20,7 +20,7 @@ describe("companionStateMachine", () => {
 
   it("moves into reaction for successful utility actions", () => {
     const transition = transitionCompanionState(
-      { type: "utilityActionCompleted" },
+      { type: "utilityActionCompleted", action: "created_timer" },
       {
         draft: "",
         focused: true,
@@ -29,12 +29,12 @@ describe("companionStateMachine", () => {
     );
 
     expect(transition.state).toBe("reaction");
-    expect(transition.durationMs).toBe(1100);
+    expect(transition.durationMs).toBe(1350);
   });
 
   it("keeps runtime failures in the error state path", () => {
     const transition = transitionCompanionState(
-      { type: "responseReceived", ok: false },
+      { type: "responseReceived", ok: false, messageLength: 42 },
       {
         draft: "",
         focused: true,
@@ -43,6 +43,29 @@ describe("companionStateMachine", () => {
     );
 
     expect(transition.state).toBe("error");
-    expect(transition.durationMs).toBe(1800);
+    expect(transition.durationMs).toBe(1700);
+  });
+
+  it("keeps longer replies in the talking state for longer", () => {
+    const shortReply = transitionCompanionState(
+      { type: "responseReceived", ok: true, messageLength: 24 },
+      {
+        draft: "",
+        focused: true,
+        isSending: false,
+      },
+    );
+    const longReply = transitionCompanionState(
+      { type: "responseReceived", ok: true, messageLength: 180 },
+      {
+        draft: "",
+        focused: true,
+        isSending: false,
+      },
+    );
+
+    expect(shortReply.state).toBe("talking");
+    expect(longReply.state).toBe("talking");
+    expect(longReply.durationMs).toBeGreaterThan(shortReply.durationMs ?? 0);
   });
 });

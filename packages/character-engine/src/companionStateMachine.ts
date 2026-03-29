@@ -23,6 +23,7 @@ export type CompanionStateEvent =
   | {
       type: "responseReceived";
       ok: boolean;
+      messageLength: number;
     }
   | {
       type: "windowFocusChanged";
@@ -30,6 +31,7 @@ export type CompanionStateEvent =
     }
   | {
       type: "utilityActionCompleted";
+      action: string;
     }
   | {
       type: "settle";
@@ -39,6 +41,23 @@ export type CompanionTransition = {
   state: CompanionState;
   durationMs: number | null;
 };
+
+function getTalkingDurationMs(messageLength: number): number {
+  const normalizedLength = Math.max(0, messageLength);
+  return Math.min(2800, 1200 + Math.round(normalizedLength * 9));
+}
+
+function getReactionDurationMs(action: string): number {
+  if (action === "created_timer" || action === "created_alarm") {
+    return 1350;
+  }
+
+  if (action === "created_reminder" || action === "created_todo") {
+    return 1200;
+  }
+
+  return 1000;
+}
 
 export function getSettledCompanionState(
   context: Pick<CompanionStateContext, "draft" | "focused">,
@@ -73,13 +92,16 @@ export function transitionCompanionState(
 
     case "responseReceived":
       if (event.ok) {
-        return { state: "talking", durationMs: 1400 };
+        return {
+          state: "talking",
+          durationMs: getTalkingDurationMs(event.messageLength),
+        };
       }
 
-      return { state: "error", durationMs: 1800 };
+      return { state: "error", durationMs: 1700 };
 
     case "utilityActionCompleted":
-      return { state: "reaction", durationMs: 1100 };
+      return { state: "reaction", durationMs: getReactionDurationMs(event.action) };
 
     case "windowFocusChanged":
       if (context.isSending) {

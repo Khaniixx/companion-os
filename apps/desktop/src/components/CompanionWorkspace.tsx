@@ -18,6 +18,7 @@ import {
   microUtilityApi,
   type MicroUtilityState,
 } from "../microUtilityApi";
+import { packApi, type InstalledPack } from "../packApi";
 import {
   streamApi,
   type StreamEvent,
@@ -37,11 +38,21 @@ type CompanionResponse = {
   user_message: string;
   assistant_response: string;
   action?: Record<string, unknown> | null;
+  loading: boolean;
 };
 
 type PermissionResponse = {
   permission: string;
   granted: boolean;
+};
+
+type ChatModelStatus = {
+  provider: string;
+  model: string;
+  state: "ready" | "loading" | "missing";
+  present: boolean;
+  loaded: boolean;
+  message: string;
 };
 
 const starterMessages: CompanionMessage[] = [
@@ -53,6 +64,25 @@ const starterMessages: CompanionMessage[] = [
 ];
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+const MIN_THINKING_DELAY_MS = 260;
+const MAX_THINKING_DELAY_MS = 1200;
+
+function getReplyThinkingDelay(message: string): number {
+  return Math.min(
+    MAX_THINKING_DELAY_MS,
+    MIN_THINKING_DELAY_MS + Math.round(message.trim().length * 8),
+  );
+}
+
+function waitForPacing(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
+}
+
+function getActivePackFromResponse(packs: InstalledPack[]): InstalledPack | null {
+  return packs.find((pack) => pack.active) ?? null;
+}
 
 export function CompanionWorkspace() {
   const [initialSession] = useState(() => loadCompanionSession(starterMessages));
@@ -81,7 +111,13 @@ export function CompanionWorkspace() {
     null,
   );
   const [selectedModel, setSelectedModel] = useState("llama3.1:8b-instruct");
+  const [availableModels, setAvailableModels] = useState<string[]>([
+    "llama3.1:8b-instruct",
+  ]);
+  const [modelStatus, setModelStatus] = useState<ChatModelStatus | null>(null);
+  const [isSavingModel, setIsSavingModel] = useState(false);
   const [installerCompleted, setInstallerCompleted] = useState(false);
+  const [activePack, setActivePack] = useState<InstalledPack | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
   const [isRepairingOpenClaw, setIsRepairingOpenClaw] = useState(false);
@@ -92,10 +128,15 @@ export function CompanionWorkspace() {
   const transientTimerRef = useRef<number | null>(null);
   const streamBubbleTimerRef = useRef<number | null>(null);
   const seenStreamEventIdsRef = useRef<Set<number>>(new Set());
+  const activePackRef = useRef<InstalledPack | null>(null);
 
   useEffect(() => {
     isSendingRef.current = isSending;
   }, [isSending]);
+
+  useEffect(() => {
+    activePackRef.current = activePack;
+  }, [activePack]);
 
   useEffect(() => {
     const highestId = messages.reduce(
@@ -114,24 +155,31 @@ export function CompanionWorkspace() {
           openAppResponse,
           openUrlResponse,
           installerStatus,
+          installerModels,
+          packResponse,
           utilityState,
           currentStreamState,
+          modelStatusResponse,
         ] = await Promise.all([
           fetch(`${API_BASE_URL}/api/preferences/permissions/open_app`),
           fetch(`${API_BASE_URL}/api/preferences/permissions/open_url`),
           installerApi.getInstallerStatus(),
+          installerApi.getModels().catch(() => []),
+          packApi.listPacks(),
           microUtilityApi.getState(),
           streamApi.getState(),
+          fetch(`${API_BASE_URL}/api/chat/model-status`),
         ]);
 
-        if (!openAppResponse.ok || !openUrlResponse.ok) {
+        if (!openAppResponse.ok || !openUrlResponse.ok || !modelStatusResponse.ok) {
           throw new Error("Runtime returned an unexpected permissions response");
         }
 
-        const [openAppData, openUrlData] = (await Promise.all([
+        const [openAppData, openUrlData, nextModelStatus] = (await Promise.all([
           openAppResponse.json(),
           openUrlResponse.json(),
-        ])) as [PermissionResponse, PermissionResponse];
+          modelStatusResponse.json(),
+        ])) as [PermissionResponse, PermissionResponse, ChatModelStatus];
 
         if (!active) {
           return;
@@ -140,12 +188,39 @@ export function CompanionWorkspace() {
         setHasOpenAppPermission(openAppData.granted);
         setHasOpenUrlPermission(openUrlData.granted);
         setSelectedModel(installerStatus.ai.model);
+        setAvailableModels(
+          installerModels.length > 0 ? installerModels : [installerStatus.ai.model],
+        );
+        setModelStatus(nextModelStatus);
         setInstallerCompleted(installerStatus.completed);
+        setActivePack(getActivePackFromResponse(packResponse.packs));
         setMicroUtilityState(utilityState);
         setStreamState(currentStreamState);
         seenStreamEventIdsRef.current = new Set(
           currentStreamState.recent_events.map((event) => event.id),
         );
+        if (nextModelStatus.state !== "ready") {
+          setMessages((currentMessages) => {
+            if (
+              currentMessages.some(
+                (message) =>
+                  message.sender === "companion" &&
+                  message.text === nextModelStatus.message,
+              )
+            ) {
+              return currentMessages;
+            }
+
+            return [
+              ...currentMessages,
+              {
+                id: nextMessageIdRef.current++,
+                sender: "companion",
+                text: nextModelStatus.message,
+              },
+            ];
+          });
+        }
       } catch {
         if (!active) {
           return;
@@ -156,6 +231,8 @@ export function CompanionWorkspace() {
         setInstallerCompleted(false);
         setMicroUtilityState(null);
         setStreamState(null);
+        setModelStatus(null);
+        setActivePack(null);
       } finally {
         if (active) {
           setIsLoadingOpenAppPermission(false);
@@ -355,14 +432,18 @@ export function CompanionWorkspace() {
         applyTransition({
           type: "responseReceived",
           ok: payload.ok,
+          messageLength: payload.messageLength,
         });
       },
     );
 
     const unsubscribeUtilityActionCompleted = companionEventBus.subscribe(
       "utilityActionCompleted",
-      () => {
-        applyTransition({ type: "utilityActionCompleted" });
+      ({ payload }) => {
+        applyTransition({
+          type: "utilityActionCompleted",
+          action: payload.action,
+        });
       },
     );
 
@@ -431,6 +512,7 @@ export function CompanionWorkspace() {
     companionEventBus.emit("responseReceived", {
       message: text,
       ok,
+      messageLength: text.trim().length,
     });
   }
 
@@ -477,29 +559,41 @@ export function CompanionWorkspace() {
       openAppResponse,
       openUrlResponse,
       installerStatus,
+      installerModels,
+      packResponse,
       utilityState,
       nextStreamState,
+      modelStatusResponse,
     ] = await Promise.all([
       fetch(`${API_BASE_URL}/api/preferences/permissions/open_app`),
       fetch(`${API_BASE_URL}/api/preferences/permissions/open_url`),
       installerApi.getInstallerStatus(),
+      installerApi.getModels().catch(() => []),
+      packApi.listPacks(),
       microUtilityApi.getState(),
       streamApi.getState(),
+      fetch(`${API_BASE_URL}/api/chat/model-status`),
     ]);
 
-    if (!openAppResponse.ok || !openUrlResponse.ok) {
+    if (!openAppResponse.ok || !openUrlResponse.ok || !modelStatusResponse.ok) {
       throw new Error("Runtime returned an unexpected settings response");
     }
 
-    const [openAppData, openUrlData] = (await Promise.all([
+    const [openAppData, openUrlData, nextModelStatus] = (await Promise.all([
       openAppResponse.json(),
       openUrlResponse.json(),
-    ])) as [PermissionResponse, PermissionResponse];
+      modelStatusResponse.json(),
+    ])) as [PermissionResponse, PermissionResponse, ChatModelStatus];
 
     setHasOpenAppPermission(openAppData.granted);
     setHasOpenUrlPermission(openUrlData.granted);
     setSelectedModel(installerStatus.ai.model);
+    setAvailableModels(
+      installerModels.length > 0 ? installerModels : [installerStatus.ai.model],
+    );
+    setModelStatus(nextModelStatus);
     setInstallerCompleted(installerStatus.completed);
+    setActivePack(getActivePackFromResponse(packResponse.packs));
     setMicroUtilityState(utilityState);
     setStreamState(nextStreamState);
     seenStreamEventIdsRef.current = new Set(
@@ -546,12 +640,40 @@ export function CompanionWorkspace() {
       const detail =
         error instanceof Error ? error.message : "Unknown repair error";
       appendCompanionMessage(
-        `I could not repair OpenClaw yet: ${detail}`,
+        "I tried to repair OpenClaw, but I still need a moment before I can reconnect.",
         false,
       );
       setSettingsNotice(`OpenClaw still needs attention: ${detail}`);
     } finally {
       setIsRepairingOpenClaw(false);
+    }
+  }
+
+  async function handleSaveModelSelection(): Promise<void> {
+    try {
+      setIsSavingModel(true);
+      await installerApi.configureAI(selectedModel);
+
+      const response = await fetch(`${API_BASE_URL}/api/chat/model-status`);
+      if (!response.ok) {
+        throw new Error(`Runtime returned ${response.status}`);
+      }
+
+      const nextModelStatus = (await response.json()) as ChatModelStatus;
+      setModelStatus(nextModelStatus);
+      setSettingsNotice("Saved your local model choice for future chats.");
+      appendCompanionMessage(
+        nextModelStatus.state === "ready"
+          ? "I saved that local model and I am ready to use it."
+          : nextModelStatus.message,
+        true,
+      );
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown model save error";
+      setSettingsNotice(`I could not save that model yet: ${detail}`);
+    } finally {
+      setIsSavingModel(false);
     }
   }
 
@@ -778,13 +900,35 @@ export function CompanionWorkspace() {
         (await response.json()) as CompanionResponse;
 
       const responseIsPositive =
-        data.ok || data.action?.type === "permission_required";
+        data.ok ||
+        data.loading ||
+        data.action?.type === "permission_required" ||
+        data.action?.error_code === "model_missing";
+      await waitForPacing(getReplyThinkingDelay(data.assistant_response));
       appendCompanionMessage(data.assistant_response, responseIsPositive);
+      if (
+        data.action?.type === "chat_reply" &&
+        typeof data.action.provider === "string" &&
+        typeof data.action.model === "string" &&
+        (data.loading || data.action?.error_code === "model_missing")
+      ) {
+        setModelStatus({
+          provider: data.action.provider,
+          model: data.action.model,
+          state: data.loading ? "loading" : "missing",
+          present: data.action?.error_code !== "model_missing",
+          loaded: false,
+          message: data.assistant_response,
+        });
+      }
       await handleResponseAction(data.action, userText);
-    } catch (error) {
-      const detail =
-        error instanceof Error ? error.message : "Unknown connection error";
-      appendCompanionMessage(`I could not reach the runtime: ${detail}`, false);
+    } catch {
+      const companionName = activePackRef.current?.display_name ?? "Companion";
+      await waitForPacing(MIN_THINKING_DELAY_MS);
+      appendCompanionMessage(
+        `${companionName} is having trouble reaching the local runtime right now. Please try again in a moment.`,
+        false,
+      );
     } finally {
       setIsSending(false);
       isSendingRef.current = false;
@@ -830,6 +974,15 @@ export function CompanionWorkspace() {
     companionEventBus.emit("draftChanged", { draft: nextDraft });
   }
 
+  function handlePacksChanged(
+    packs: InstalledPack[],
+    activePackId: string | null,
+  ): void {
+    setActivePack(packs.find((pack) => pack.id === activePackId) ?? null);
+  }
+
+  const companionTitle = activePack?.display_name ?? "Companion";
+
   return (
     <main
       className={`app-shell${
@@ -864,7 +1017,12 @@ export function CompanionWorkspace() {
             <p>{activeStreamEvent.bubble_text}</p>
           </article>
         ) : null}
-        <CompanionAvatar state={companionState} />
+        <CompanionAvatar
+          state={companionState}
+          displayName={companionTitle}
+          avatarConfig={activePack?.avatar}
+          voiceConfig={activePack?.voice}
+        />
       </section>
 
       <aside className="chat-panel">
@@ -907,9 +1065,53 @@ export function CompanionWorkspace() {
 
             <div className="settings-panel__grid">
               <article className="settings-card">
+                <span className="settings-card__label">Selected pack</span>
+                <strong>{companionTitle}</strong>
+                <p>
+                  The active pack keeps this companion&apos;s tone, idle motion, and
+                  voice cues consistent after restarts.
+                </p>
+              </article>
+
+              <article className="settings-card">
                 <span className="settings-card__label">Selected model</span>
                 <strong>{selectedModel}</strong>
                 <p>Core replies stay local-first with your saved model choice.</p>
+                <label className="settings-select">
+                  <span>Choose local model</span>
+                  <select
+                    aria-label="Choose local model"
+                    value={selectedModel}
+                    onChange={(event) => {
+                      setSelectedModel(event.target.value);
+                    }}
+                  >
+                    {availableModels.map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="settings-action-button"
+                  disabled={isSavingModel}
+                  type="button"
+                  onClick={() => {
+                    void handleSaveModelSelection();
+                  }}
+                >
+                  {isSavingModel ? "Saving model..." : "Save model"}
+                </button>
+                <p>
+                  {modelStatus?.state === "ready"
+                    ? "Ready locally."
+                    : modelStatus?.state === "loading"
+                      ? "Warming up locally."
+                      : modelStatus?.state === "missing"
+                        ? "Needs download or a different local model."
+                        : "Checking local model status."}
+                </p>
               </article>
 
               <article className="settings-card">
@@ -963,7 +1165,7 @@ export function CompanionWorkspace() {
             ) : null}
 
             <MemoryPrivacySettings />
-            <PersonalityPackSettings />
+            <PersonalityPackSettings onPacksChanged={handlePacksChanged} />
             <StreamIntegrationSettings
               isSaving={isSavingStreamSettings}
               notice={streamNotice}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   packApi as defaultPackApi,
@@ -14,6 +14,7 @@ import { MarketplaceBrowser } from "./MarketplaceBrowser";
 type PersonalityPackSettingsProps = {
   packApi?: PackApi;
   marketplaceApi?: MarketplaceApi;
+  onPacksChanged?: (packs: InstalledPack[], activePackId: string | null) => void;
 };
 
 function formatContentRating(pack: InstalledPack): string {
@@ -65,7 +66,9 @@ function fileToBase64(file: File): Promise<string> {
 export function PersonalityPackSettings({
   packApi = defaultPackApi,
   marketplaceApi = defaultMarketplaceApi,
+  onPacksChanged,
 }: PersonalityPackSettingsProps) {
+  const onPacksChangedRef = useRef(onPacksChanged);
   const [packs, setPacks] = useState<InstalledPack[]>([]);
   const [activePackId, setActivePackId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -77,10 +80,15 @@ export function PersonalityPackSettings({
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    onPacksChangedRef.current = onPacksChanged;
+  }, [onPacksChanged]);
+
   async function refreshPacks(): Promise<void> {
     const response = await packApi.listPacks();
     setPacks(response.packs);
     setActivePackId(response.active_pack_id);
+    onPacksChangedRef.current?.(response.packs, response.active_pack_id);
   }
 
   useEffect(() => {
@@ -95,6 +103,7 @@ export function PersonalityPackSettings({
 
         setPacks(response.packs);
         setActivePackId(response.active_pack_id);
+        onPacksChangedRef.current?.(response.packs, response.active_pack_id);
       } catch (loadError) {
         if (!active) {
           return;

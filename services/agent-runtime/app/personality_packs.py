@@ -342,6 +342,40 @@ class InstalledPackSummary(BaseModel):
     active: bool
     icon_data_url: str | None
     installed_at: str | None
+    system_prompt: str | None = None
+    style_rules: list[str] = Field(default_factory=list)
+    voice: dict[str, str | None] = Field(default_factory=dict)
+    avatar: dict[str, object] = Field(default_factory=dict)
+
+
+def _default_personality_profile() -> dict[str, object]:
+    return {
+        "id": None,
+        "display_name": "Companion",
+        "system_prompt": (
+            "You are Companion OS, one persistent local-first desktop companion. "
+            "Stay calm, helpful, and concise."
+        ),
+        "style_rules": [
+            "Keep one continuous companion identity.",
+            "Reply in a warm, practical tone.",
+            "Avoid raw JSON or dashboard language.",
+        ],
+        "voice": {
+            "provider": "local",
+            "voice_id": "default",
+            "locale": "en-US",
+            "style": "warm",
+        },
+        "avatar": {
+            "idle_animation": "idle",
+            "listening_animation": "listening",
+            "thinking_animation": "thinking",
+            "talking_animation": "talking",
+            "reaction_animation": "reaction",
+            "audio_cues": {},
+        },
+    }
 
 
 def _canonical_manifest_payload(manifest_data: dict[str, object]) -> bytes:
@@ -527,7 +561,40 @@ def _summary_from_manifest(pack_dir: Path, manifest: PackManifest) -> InstalledP
         active=manifest.id == get_active_pack_id(),
         icon_data_url=_icon_data_url(pack_dir, manifest),
         installed_at=metadata.installed_at if metadata is not None else None,
+        system_prompt=manifest.personality.system_prompt,
+        style_rules=list(manifest.personality.style_rules),
+        voice=manifest.personality.voice.model_dump(mode="json"),
+        avatar=manifest.personality.avatar.model_dump(mode="json"),
     )
+
+
+def get_active_pack_profile() -> dict[str, object]:
+    """Return the active pack personality profile or a local default."""
+
+    active_pack_id = get_active_pack_id()
+    if active_pack_id is None:
+        return _default_personality_profile()
+
+    pack_dir = PACKS_DIR / active_pack_id
+    manifest_path = pack_dir / "pack.json"
+    if not manifest_path.exists():
+        return _default_personality_profile()
+
+    try:
+        manifest = PackManifest.model_validate_json(
+            manifest_path.read_text(encoding="utf-8")
+        )
+    except ValidationError:
+        return _default_personality_profile()
+
+    return {
+        "id": manifest.id,
+        "display_name": manifest.personality.display_name,
+        "system_prompt": manifest.personality.system_prompt,
+        "style_rules": list(manifest.personality.style_rules),
+        "voice": manifest.personality.voice.model_dump(mode="json"),
+        "avatar": manifest.personality.avatar.model_dump(mode="json"),
+    }
 
 
 def _install_from_directory(

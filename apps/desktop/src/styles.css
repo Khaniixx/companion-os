@@ -483,6 +483,54 @@ textarea {
   animation: breathe 6s ease-in-out infinite;
 }
 
+.avatar-ears {
+  position: absolute;
+  top: 16%;
+  width: 58%;
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.avatar-ear {
+  width: 78px;
+  height: 122px;
+  border-radius: 70% 70% 28% 28%;
+  background:
+    linear-gradient(180deg, rgba(243, 248, 255, 0.96), rgba(168, 193, 231, 0.88)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent);
+  box-shadow:
+    inset 0 -18px 28px rgba(103, 144, 205, 0.38),
+    0 16px 30px rgba(0, 0, 0, 0.18);
+  transform-origin: bottom center;
+}
+
+.avatar-ear--left {
+  --ear-rotation: -18deg;
+  transform: rotate(var(--ear-rotation));
+}
+
+.avatar-ear--right {
+  --ear-rotation: 18deg;
+  transform: rotate(var(--ear-rotation));
+}
+
+.avatar-shell--idle .avatar-ear {
+  animation: earTwitch 7s ease-in-out infinite;
+}
+
+.avatar-shell--listening .avatar-ear--left {
+  transform: rotate(-10deg) translateY(-4px);
+}
+
+.avatar-shell--listening .avatar-ear--right {
+  transform: rotate(10deg) translateY(-4px);
+}
+
+.avatar-shell--reaction .avatar-ear {
+  animation: earTwitch 1.8s ease-in-out 1;
+}
+
 .avatar-shell--idle .avatar-aura {
   animation-duration: 6s;
 }
@@ -542,6 +590,34 @@ textarea {
   border: 1px solid rgba(255, 255, 255, 0.34);
 }
 
+.avatar-tail {
+  position: absolute;
+  right: -28px;
+  bottom: 22%;
+  width: 128px;
+  height: 32px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(216, 229, 248, 0.9), rgba(148, 177, 219, 0.82));
+  transform-origin: left center;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.16);
+}
+
+.avatar-shell--idle .avatar-tail {
+  animation: tailSwish 5.5s ease-in-out infinite;
+}
+
+.avatar-shell--listening .avatar-tail {
+  animation: tailSwish 3.2s ease-in-out infinite;
+}
+
+.avatar-shell--talking .avatar-tail {
+  animation: tailSwish 2.2s ease-in-out infinite;
+}
+
+.avatar-shell--reaction .avatar-tail {
+  animation: tailSwish 1.4s ease-in-out 1;
+}
+
 .avatar-face {
   position: relative;
   width: 44%;
@@ -567,6 +643,7 @@ textarea {
 
 .avatar-eye--idle {
   opacity: 0.92;
+  animation: blink 6s ease-in-out infinite;
 }
 
 .avatar-eye--listening {
@@ -651,6 +728,18 @@ textarea {
   height: 18px;
   bottom: -30px;
   border-radius: 60% 60% 42% 42%;
+}
+
+.avatar-screen-reader {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .avatar-status {
@@ -834,6 +923,21 @@ textarea {
   margin: 10px 0 0;
   color: rgba(225, 236, 250, 0.76);
   line-height: 1.5;
+}
+
+.settings-select {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  color: rgba(225, 236, 250, 0.88);
+}
+
+.settings-select select {
+  border: 1px solid rgba(166, 191, 230, 0.18);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: #f6fbff;
+  background: rgba(9, 21, 38, 0.92);
 }
 
 .settings-actions {
@@ -1321,6 +1425,52 @@ textarea {
   gap: 10px;
 }
 
+.utility-alerts {
+  display: grid;
+  gap: 10px;
+}
+
+.utility-alert {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(129, 240, 214, 0.2);
+  background: linear-gradient(135deg, rgba(19, 53, 60, 0.86), rgba(18, 37, 56, 0.82));
+}
+
+.utility-alert strong,
+.utility-alert p {
+  margin: 0;
+}
+
+.utility-alert__eyebrow {
+  display: block;
+  margin-bottom: 4px;
+  color: rgba(212, 247, 239, 0.82);
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.utility-alert__button,
+.utility-inline-button {
+  border: 1px solid rgba(166, 191, 230, 0.18);
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(9, 21, 38, 0.92);
+  color: #ecf4ff;
+  cursor: pointer;
+}
+
+.utility-alert__button:disabled,
+.utility-inline-button:disabled {
+  opacity: 0.72;
+  cursor: wait;
+}
+
 .utility-action-button,
 .utility-shortcut-button {
   border: 1px solid rgba(166, 191, 230, 0.18);
@@ -1393,6 +1543,11 @@ textarea {
   gap: 10px;
 }
 
+.utility-list__stack {
+  display: grid;
+  gap: 4px;
+}
+
 .utility-list__label,
 .utility-list__meta {
   font-size: 0.92rem;
@@ -1406,6 +1561,13 @@ textarea {
 .utility-list__meta {
   color: rgba(180, 206, 239, 0.74);
   white-space: nowrap;
+}
+
+.utility-list__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .utility-shortcuts {
@@ -1548,6 +1710,43 @@ textarea {
   50% {
     transform: scale(1.03);
     opacity: 1;
+  }
+}
+
+@keyframes blink {
+  0%,
+  46%,
+  52%,
+  100% {
+    transform: scaleY(1);
+  }
+  48%,
+  50% {
+    transform: scaleY(0.12);
+  }
+}
+
+@keyframes earTwitch {
+  0%,
+  82%,
+  100% {
+    transform: rotate(var(--ear-rotation, 0deg));
+  }
+  86% {
+    transform: rotate(calc(var(--ear-rotation, 0deg) + 8deg));
+  }
+  92% {
+    transform: rotate(calc(var(--ear-rotation, 0deg) - 6deg));
+  }
+}
+
+@keyframes tailSwish {
+  0%,
+  100% {
+    transform: rotate(12deg) scaleX(1);
+  }
+  50% {
+    transform: rotate(-8deg) scaleX(1.04);
   }
 }
 

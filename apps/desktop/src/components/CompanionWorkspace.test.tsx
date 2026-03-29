@@ -82,11 +82,23 @@ function createInstallerStatus(
   };
 }
 
-function createFetchMock() {
+function createFetchMock(
+  options?: Partial<{
+    modelStatus: {
+      provider: string;
+      model: string;
+      state: "ready" | "loading" | "missing";
+      present: boolean;
+      loaded: boolean;
+      message: string;
+    };
+  }>,
+) {
   let openAppGranted = false;
   let openUrlGranted = false;
   let nextUtilityId = 3;
   let nextStreamEventId = 20;
+  let selectedModel = "llama3.1:8b-instruct";
   const utilityState = {
     timers: [] as Array<{
       id: number;
@@ -168,6 +180,15 @@ function createFetchMock() {
       should_react: boolean;
     }>,
   };
+  let modelStatus =
+    options?.modelStatus ?? {
+      provider: "ollama",
+      model: selectedModel,
+      state: "ready" as const,
+      present: true,
+      loaded: true,
+      message: "Your local model is awake and ready.",
+    };
 
   return vi
     .spyOn(window, "fetch")
@@ -295,7 +316,65 @@ function createFetchMock() {
 
       if (url.endsWith("/api/installer/status")) {
         return Promise.resolve(
-          new Response(JSON.stringify(createInstallerStatus()), { status: 200 }),
+          new Response(
+            JSON.stringify(createInstallerStatus({ model: selectedModel })),
+            { status: 200 },
+          ),
+        );
+      }
+
+      if (url.endsWith("/api/installer/models")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify([
+              "llama3.1:8b-instruct",
+              "mistral-small:24b-instruct",
+              "qwen2.5-coder:7b-instruct",
+            ]),
+            { status: 200 },
+          ),
+        );
+      }
+
+      if (url.endsWith("/api/installer/configure-ai")) {
+        const body = JSON.parse(String(init?.body)) as { model: string };
+        selectedModel = body.model;
+        modelStatus = {
+          provider: "ollama",
+          model: selectedModel,
+          state: "missing",
+          present: false,
+          loaded: false,
+          message:
+            `I am softly missing my local model, ${selectedModel}. ` +
+            "Open settings to choose another local model or download this one first.",
+        };
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              provider: "local",
+              model: selectedModel,
+              message: "Saved your preferred local model.",
+              step: {
+                id: "configure-ai",
+                title: "Configure AI",
+                description: "",
+                status: "complete",
+                message: "Local AI is configured.",
+                error: null,
+                recovery_instructions: [],
+                can_retry: false,
+                can_repair: false,
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+
+      if (url.endsWith("/api/chat/model-status")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(modelStatus), { status: 200 }),
         );
       }
 
@@ -376,6 +455,27 @@ function createFetchMock() {
                   active: true,
                   icon_data_url: null,
                   installed_at: "2026-03-29T00:00:00+00:00",
+                  system_prompt: "Stay warm, grounded, and practical.",
+                  style_rules: [
+                    "Keep one persistent companion identity.",
+                    "Use calm phrasing.",
+                  ],
+                  voice: {
+                    provider: "local",
+                    voice_id: "sunrise",
+                    locale: "en-US",
+                    style: "warm",
+                  },
+                  avatar: {
+                    idle_animation: "sunrise-idle",
+                    listening_animation: "sunrise-listening",
+                    thinking_animation: "sunrise-thinking",
+                    talking_animation: "sunrise-talking",
+                    reaction_animation: "sunrise-reaction",
+                    audio_cues: {
+                      talking: "voice/sunrise-talk.ogg",
+                    },
+                  },
                 },
               ],
             }),
@@ -561,12 +661,15 @@ function createFetchMock() {
                 route: "companion-chat",
                 user_message: "hello",
                 assistant_response:
-                  "I am almost ready, but my local model llama3.1:8b-instruct is not loaded yet.",
+                  "I am softly getting my local thoughts in order. Give me a moment, then ask again.",
                 action: {
                   type: "chat_reply",
                   provider: "ollama",
                   model: "llama3.1:8b-instruct",
+                  error_code: "model_not_ready",
+                  display_name: "Sunrise",
                 },
+                loading: true,
               }),
               { status: 200 },
             ),
@@ -596,6 +699,7 @@ function createFetchMock() {
                   type: "created_timer",
                   utility: timer,
                 },
+                loading: false,
               }),
               { status: 200 },
             ),
@@ -615,6 +719,7 @@ function createFetchMock() {
                   type: "capture_clipboard",
                   utility: "clipboard",
                 },
+                loading: false,
               }),
               { status: 200 },
             ),
@@ -634,6 +739,7 @@ function createFetchMock() {
                   type: "listed_utilities",
                   utility: "todos",
                 },
+                loading: false,
               }),
               { status: 200 },
             ),
@@ -655,6 +761,7 @@ function createFetchMock() {
                     permission: "open_app",
                     target: "spotify",
                   },
+                  loading: false,
                 }),
                 { status: 200 },
               ),
@@ -672,6 +779,7 @@ function createFetchMock() {
                   type: "open_app",
                   app: "spotify",
                 },
+                loading: false,
               }),
               { status: 200 },
             ),
@@ -714,7 +822,7 @@ describe("CompanionWorkspace", () => {
     expect(screen.getByText("talking")).toBeInTheDocument();
   });
 
-  it("moves into the error state when the local model is unavailable", async () => {
+  it("keeps the companion calm while the local model is warming up", async () => {
     createFetchMock();
     const user = userEvent.setup();
 
@@ -724,10 +832,34 @@ describe("CompanionWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
     await waitFor(() => {
-      expect(screen.getByText("error")).toBeInTheDocument();
-    });
+      expect(screen.getByText("talking")).toBeInTheDocument();
+    }, { timeout: 2500 });
     expect(
-      screen.getByText(/I am almost ready, but my local model/i),
+      screen.getByText(/getting my local thoughts in order/i),
+    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText("idle")).toBeInTheDocument();
+    }, { timeout: 3000 });
+  });
+
+  it("shows a companion-style startup notice when the selected model is missing", async () => {
+    createFetchMock({
+      modelStatus: {
+        provider: "ollama",
+        model: "qwen2.5-coder:7b-instruct",
+        state: "missing",
+        present: false,
+        loaded: false,
+        message:
+          "I am softly missing my local model, qwen2.5-coder:7b-instruct. Open settings to choose another local model or download this one first.",
+      },
+    });
+
+    render(<CompanionWorkspace />);
+
+    expect(
+      await screen.findByText(/missing my local model, qwen2.5-coder:7b-instruct/i),
     ).toBeInTheDocument();
   });
 
@@ -789,7 +921,8 @@ describe("CompanionWorkspace", () => {
 
     await user.click(screen.getByRole("button", { name: "Settings" }));
 
-    expect(await screen.findByText("llama3.1:8b-instruct")).toBeInTheDocument();
+    expect(screen.getAllByText("llama3.1:8b-instruct").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Sunrise").length).toBeGreaterThan(0);
     expect(screen.getByText("OpenClaw ready")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Reset permissions" }));
@@ -811,6 +944,27 @@ describe("CompanionWorkspace", () => {
         screen.getByText("I refreshed OpenClaw and reconnected the local runtime."),
       ).toBeInTheDocument();
     });
+  });
+
+  it("lets the user save a different local model from settings", async () => {
+    createFetchMock();
+    const user = userEvent.setup();
+
+    render(<CompanionWorkspace />);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.selectOptions(
+      screen.getByLabelText("Choose local model"),
+      "mistral-small:24b-instruct",
+    );
+    await user.click(screen.getByRole("button", { name: "Save model" }));
+
+    expect(
+      await screen.findByText("Saved your local model choice for future chats."),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(/missing my local model, mistral-small:24b-instruct/i),
+    ).toBeInTheDocument();
   });
 
   it("saves stream settings and previews a stream reaction bubble", async () => {

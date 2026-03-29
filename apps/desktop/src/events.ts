@@ -29,6 +29,7 @@ export type CompanionEventMap = {
   responseReceived: {
     message: string;
     ok: boolean;
+    messageLength: number;
   };
   utilityActionCompleted: {
     action: string;
