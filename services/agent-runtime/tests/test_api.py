@@ -386,6 +386,28 @@ def test_download_step_returns_guided_repair_when_winget_is_missing(
     )
 
 
+def test_packaged_windows_download_only_blocks_on_ollama(monkeypatch) -> None:
+    monkeypatch.setattr(installer.sys, "platform", "win32")
+    monkeypatch.setattr(installer.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(installer, "_command_exists", lambda _name: False)
+
+    response = client.post("/api/installer/download")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["step"]["status"] == "needs_action"
+    assert payload["environment"]["missing_prerequisites"] == []
+    assert payload["environment"]["missing_runtime_dependencies"] == ["Ollama"]
+    assert payload["remaining"] == ["Ollama"]
+    assert "Ollama" in payload["step"]["message"]
+    assert not any(
+        "Node.js" in instruction for instruction in payload["step"]["recovery_instructions"]
+    )
+    assert not any(
+        "Rust" in instruction for instruction in payload["step"]["recovery_instructions"]
+    )
+
+
 def test_download_step_explains_ollama_windows_handoff(monkeypatch) -> None:
     monkeypatch.setattr(installer.sys, "platform", "win32")
 

@@ -56,6 +56,22 @@ def test_environment_checks_include_msvc_on_windows(monkeypatch) -> None:
     assert "Windows C++ / MSVC Toolchain" in labels
 
 
+def test_packaged_windows_environment_only_requires_ollama(monkeypatch) -> None:
+    monkeypatch.setattr(installer.sys, "platform", "win32")
+    monkeypatch.setattr(installer.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(installer, "_command_exists", lambda _name: False)
+
+    environment = installer._collect_environment_result()
+
+    assert environment["platform"] == "windows"
+    assert environment["missing_prerequisites"] == []
+    assert environment["missing_runtime_dependencies"] == ["Ollama"]
+    assert environment["node_installed"] is True
+    assert environment["rust_installed"] is True
+    assert environment["cpp_toolchain_installed"] is True
+    assert [item["label"] for item in environment["checks"]] == ["Ollama"]
+
+
 def test_environment_checks_on_linux_show_local_runtime_dependencies(monkeypatch) -> None:
     monkeypatch.setattr(installer.sys, "platform", "linux")
     monkeypatch.setattr(installer, "_command_exists", lambda _name: False)

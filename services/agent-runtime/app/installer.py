@@ -113,8 +113,16 @@ def _platform_key() -> str:
     return "other"
 
 
+def _uses_bundled_desktop_runtime() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def _requires_desktop_shell_prerequisites() -> bool:
+    return not (_platform_key() == "windows" and _uses_bundled_desktop_runtime())
+
+
 def _requires_msvc_toolchain() -> bool:
-    return _platform_key() == "windows"
+    return _platform_key() == "windows" and _requires_desktop_shell_prerequisites()
 
 
 def _state_version() -> str:
@@ -135,15 +143,17 @@ def _approx_size_for_dependency(label: str) -> int | None:
 
 
 def _empty_environment() -> EnvironmentCheckResult:
-    missing_prerequisites = ["Node.js", "Rust"]
-    if _requires_msvc_toolchain():
-        missing_prerequisites.append("Windows C++ / MSVC Toolchain")
+    missing_prerequisites: list[str] = []
+    if _requires_desktop_shell_prerequisites():
+        missing_prerequisites = ["Node.js", "Rust"]
+        if _requires_msvc_toolchain():
+            missing_prerequisites.append("Windows C++ / MSVC Toolchain")
 
     return EnvironmentCheckResult(
         platform=_platform_key(),
         checks=[],
-        node_installed=False,
-        rust_installed=False,
+        node_installed=not _requires_desktop_shell_prerequisites(),
+        rust_installed=not _requires_desktop_shell_prerequisites(),
         cpp_toolchain_installed=not _requires_msvc_toolchain(),
         runtime_dependencies_ready=False,
         missing_prerequisites=missing_prerequisites,
@@ -409,41 +419,48 @@ def _cpp_toolchain_installed() -> bool:
 
 
 def _dependency_definitions() -> list[dict[str, object]]:
-    definitions: list[dict[str, object]] = [
-        {
-            "id": "nodejs",
-            "label": "Node.js",
-            "category": "prerequisite",
-            "installed": lambda: _command_exists("node"),
-            "version_command": ["node", "--version"],
-        },
-        {
-            "id": "rust",
-            "label": "Rust",
-            "category": "prerequisite",
-            "installed": lambda: _command_exists("rustc"),
-            "version_command": ["rustc", "--version"],
-        },
+    definitions: list[dict[str, object]] = []
+
+    if _requires_desktop_shell_prerequisites():
+        definitions.extend(
+            [
+                {
+                    "id": "nodejs",
+                    "label": "Node.js",
+                    "category": "prerequisite",
+                    "installed": lambda: _command_exists("node"),
+                    "version_command": ["node", "--version"],
+                },
+                {
+                    "id": "rust",
+                    "label": "Rust",
+                    "category": "prerequisite",
+                    "installed": lambda: _command_exists("rustc"),
+                    "version_command": ["rustc", "--version"],
+                },
+            ]
+        )
+
+        if _requires_msvc_toolchain():
+            definitions.append(
+                {
+                    "id": "msvc",
+                    "label": "Windows C++ / MSVC Toolchain",
+                    "category": "prerequisite",
+                    "installed": _cpp_toolchain_installed,
+                    "version_command": None,
+                }
+            )
+
+    definitions.append(
         {
             "id": "ollama",
             "label": "Ollama",
             "category": "runtime",
             "installed": lambda: _command_exists("ollama"),
             "version_command": ["ollama", "--version"],
-        },
-    ]
-
-    if _requires_msvc_toolchain():
-        definitions.insert(
-            2,
-            {
-                "id": "msvc",
-                "label": "Windows C++ / MSVC Toolchain",
-                "category": "prerequisite",
-                "installed": _cpp_toolchain_installed,
-                "version_command": None,
-            },
-        )
+        }
+    )
 
     return definitions
 
@@ -684,11 +701,11 @@ def _collect_environment_result() -> EnvironmentCheckResult:
 
     node_installed = next(
         (item["installed"] for item in checks if item["label"] == "Node.js"),
-        False,
+        not _requires_desktop_shell_prerequisites(),
     )
     rust_installed = next(
         (item["installed"] for item in checks if item["label"] == "Rust"),
-        False,
+        not _requires_desktop_shell_prerequisites(),
     )
     cpp_installed = next(
         (
