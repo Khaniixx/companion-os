@@ -19,9 +19,10 @@ from typing import Final
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from app.preferences import get_active_pack_id, set_active_pack_id
+from app.runtime_paths import runtime_data_path
 
 
-PACKS_DIR = Path(__file__).resolve().parents[1] / "data" / "personality_packs"
+PACKS_DIR = runtime_data_path("personality_packs")
 PACK_INSTALL_METADATA_NAME = ".install.json"
 PACK_SCHEMA_VERSION: Final[str] = "1.0"
 PACK_SIGNATURE_ALGORITHM: Final[str] = "RS256"

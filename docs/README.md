@@ -15,6 +15,12 @@ core product rule: one persistent companion, multiple states, no separate modes.
 
 - [Desktop Linux Notes](./desktop-linux.md)
 
+## Engineering Notes
+
+- [MVP Roadmap](./engineering/mvp-roadmap.md)
+  This is the current source of truth for product priority, release scope, and
+  milestone order.
+
 ## Testing Expectations
 
 - Backend runtime work should be covered with `pytest` and `fastapi.testclient`.

@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -13,10 +14,13 @@ from typing import Final, Literal, TypedDict
 
 from app.model_catalog import RECOMMENDED_LOCAL_MODEL, SUPPORTED_LOCAL_MODELS
 from app.preferences import get_selected_model, set_selected_model
+from app.runtime_paths import runtime_data_path
 
-INSTALLER_STATE_FILE = Path(__file__).resolve().parents[1] / "data" / "installer_state.json"
-OPENCLAW_INSTALL_DIR = Path(__file__).resolve().parents[1] / "data" / "openclaw"
+INSTALLER_STATE_FILE = runtime_data_path("installer_state.json")
+OPENCLAW_INSTALL_DIR = runtime_data_path("openclaw")
 INSTALL_COMMAND_TIMEOUT_SECONDS: Final[int] = 900
+POST_INSTALL_SETTLE_SECONDS: Final[int] = 20
+POST_INSTALL_POLL_SECONDS: Final[float] = 2.0
 STEP_ORDER: Final[tuple[str, ...]] = (
     "download",
     "install-openclaw",
@@ -109,8 +113,16 @@ def _platform_key() -> str:
     return "other"
 
 
+def _uses_bundled_desktop_runtime() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def _requires_desktop_shell_prerequisites() -> bool:
+    return not (_platform_key() == "windows" and _uses_bundled_desktop_runtime())
+
+
 def _requires_msvc_toolchain() -> bool:
-    return _platform_key() == "windows"
+    return _platform_key() == "windows" and _requires_desktop_shell_prerequisites()
 
 
 def _state_version() -> str:
@@ -131,15 +143,17 @@ def _approx_size_for_dependency(label: str) -> int | None:
 
 
 def _empty_environment() -> EnvironmentCheckResult:
-    missing_prerequisites = ["Node.js", "Rust"]
-    if _requires_msvc_toolchain():
-        missing_prerequisites.append("Windows C++ / MSVC Toolchain")
+    missing_prerequisites: list[str] = []
+    if _requires_desktop_shell_prerequisites():
+        missing_prerequisites = ["Node.js", "Rust"]
+        if _requires_msvc_toolchain():
+            missing_prerequisites.append("Windows C++ / MSVC Toolchain")
 
     return EnvironmentCheckResult(
         platform=_platform_key(),
         checks=[],
-        node_installed=False,
-        rust_installed=False,
+        node_installed=not _requires_desktop_shell_prerequisites(),
+        rust_installed=not _requires_desktop_shell_prerequisites(),
         cpp_toolchain_installed=not _requires_msvc_toolchain(),
         runtime_dependencies_ready=False,
         missing_prerequisites=missing_prerequisites,
@@ -405,41 +419,48 @@ def _cpp_toolchain_installed() -> bool:
 
 
 def _dependency_definitions() -> list[dict[str, object]]:
-    definitions: list[dict[str, object]] = [
-        {
-            "id": "nodejs",
-            "label": "Node.js",
-            "category": "prerequisite",
-            "installed": lambda: _command_exists("node"),
-            "version_command": ["node", "--version"],
-        },
-        {
-            "id": "rust",
-            "label": "Rust",
-            "category": "prerequisite",
-            "installed": lambda: _command_exists("rustc"),
-            "version_command": ["rustc", "--version"],
-        },
+    definitions: list[dict[str, object]] = []
+
+    if _requires_desktop_shell_prerequisites():
+        definitions.extend(
+            [
+                {
+                    "id": "nodejs",
+                    "label": "Node.js",
+                    "category": "prerequisite",
+                    "installed": lambda: _command_exists("node"),
+                    "version_command": ["node", "--version"],
+                },
+                {
+                    "id": "rust",
+                    "label": "Rust",
+                    "category": "prerequisite",
+                    "installed": lambda: _command_exists("rustc"),
+                    "version_command": ["rustc", "--version"],
+                },
+            ]
+        )
+
+        if _requires_msvc_toolchain():
+            definitions.append(
+                {
+                    "id": "msvc",
+                    "label": "Windows C++ / MSVC Toolchain",
+                    "category": "prerequisite",
+                    "installed": _cpp_toolchain_installed,
+                    "version_command": None,
+                }
+            )
+
+    definitions.append(
         {
             "id": "ollama",
             "label": "Ollama",
             "category": "runtime",
             "installed": lambda: _command_exists("ollama"),
             "version_command": ["ollama", "--version"],
-        },
-    ]
-
-    if _requires_msvc_toolchain():
-        definitions.insert(
-            2,
-            {
-                "id": "msvc",
-                "label": "Windows C++ / MSVC Toolchain",
-                "category": "prerequisite",
-                "installed": _cpp_toolchain_installed,
-                "version_command": None,
-            },
-        )
+        }
+    )
 
     return definitions
 
@@ -572,6 +593,20 @@ def _dependency_install_command(label: str) -> list[str] | None:
     return None
 
 
+def _normalize_dependency_version(label: str, version: str | None) -> str | None:
+    if label != "Ollama":
+        return version
+
+    if version is None:
+        return "Installed on this PC"
+
+    normalized_version = version.lower()
+    if "could not connect to a running ollama instance" in normalized_version:
+        return "Installed on this PC"
+
+    return version
+
+
 def _environment_checks() -> list[DependencyStatus]:
     checks: list[DependencyStatus] = []
 
@@ -584,6 +619,9 @@ def _environment_checks() -> list[DependencyStatus]:
             version = _run_command_for_output(version_command)
         elif installed and label == "Windows C++ / MSVC Toolchain":
             version = "Build Tools detected"
+
+        if installed:
+            version = _normalize_dependency_version(label, version)
 
         checks.append(
             {
@@ -663,11 +701,11 @@ def _collect_environment_result() -> EnvironmentCheckResult:
 
     node_installed = next(
         (item["installed"] for item in checks if item["label"] == "Node.js"),
-        False,
+        not _requires_desktop_shell_prerequisites(),
     )
     rust_installed = next(
         (item["installed"] for item in checks if item["label"] == "Rust"),
-        False,
+        not _requires_desktop_shell_prerequisites(),
     )
     cpp_installed = next(
         (
@@ -740,6 +778,17 @@ def _download_recovery_plan(missing_labels: list[str], *, package_manager_ready:
         "When you are ready, choose Retry to re-check your system and continue from the same point."
     )
     return instructions
+
+
+def _single_dependency_recovery_plan(
+    dependency_label: str,
+    *,
+    package_manager_ready: bool,
+) -> list[str]:
+    return _download_recovery_plan(
+        [dependency_label],
+        package_manager_ready=package_manager_ready,
+    )
 
 
 def _interrupted_recovery_plan(step_id: str) -> list[str]:
@@ -1001,6 +1050,64 @@ def _current_missing_dependency_statuses(
     ]
 
 
+def _is_dependency_ready(
+    environment: EnvironmentCheckResult,
+    dependency_label: str,
+) -> bool:
+    return all(item["label"] != dependency_label for item in _current_missing_dependency_statuses(environment))
+
+
+def _wait_for_dependency_ready(
+    dependency_label: str,
+    *,
+    timeout_seconds: int = POST_INSTALL_SETTLE_SECONDS,
+    poll_seconds: float = POST_INSTALL_POLL_SECONDS,
+) -> EnvironmentCheckResult:
+    environment = _collect_environment_result()
+    if _is_dependency_ready(environment, dependency_label):
+        return environment
+
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        time.sleep(poll_seconds)
+        environment = _collect_environment_result()
+        if _is_dependency_ready(environment, dependency_label):
+            return environment
+
+    return environment
+
+
+def _download_follow_up_message(
+    dependency_label: str,
+    *,
+    remaining: list[str],
+) -> tuple[str, str, list[str]]:
+    recovery = _single_dependency_recovery_plan(
+        dependency_label,
+        package_manager_ready=any(
+            item.get("can_auto_install", False) and not item["installed"]
+            for item in _collect_environment_result()["checks"]
+        ),
+    )
+
+    if _platform_key() == "windows" and dependency_label == "Ollama":
+        return (
+            "Ollama is finishing setup",
+            "Ollama may have opened to finish setup on Windows. Leave it open for a moment, then choose Retry here and we will continue from the same place.",
+            [
+                "Windows may open Ollama after installation so it can finish preparing the local runtime.",
+                "Leave Ollama open for a moment, then return here and choose Retry.",
+                *recovery,
+            ],
+        )
+
+    return (
+        f"We need to finish setting up {dependency_label} before we can continue.",
+        f"Download paused while {dependency_label} waits for setup to finish.",
+        recovery,
+    )
+
+
 def _download_failure_response(
     state: InstallerStatus,
     *,
@@ -1019,7 +1126,7 @@ def _download_failure_response(
         else f"We could not finish installing {dependency_label}."
     )
     recovery = _download_recovery_plan(
-        remaining or [dependency_label],
+        [dependency_label],
         package_manager_ready=any(
             item.get("can_auto_install", False) and not item["installed"]
             for item in state["environment"]["checks"]
@@ -1101,9 +1208,8 @@ def download_setup() -> dict[str, object]:
 
             command = _dependency_install_command(dependency["label"])
             if command is None:
-                recovery = _download_recovery_plan(
-                    environment["missing_prerequisites"]
-                    + environment["missing_runtime_dependencies"],
+                recovery = _single_dependency_recovery_plan(
+                    dependency["label"],
                     package_manager_ready=False,
                 )
                 step = _set_step(
@@ -1153,6 +1259,39 @@ def download_setup() -> dict[str, object]:
                     timeout=False,
                     output=result["output"],
                 )
+
+            settled_environment = _wait_for_dependency_ready(dependency["label"])
+            state = _read_installer_state()
+            state["environment"] = settled_environment
+            if not _is_dependency_ready(settled_environment, dependency["label"]):
+                remaining = (
+                    settled_environment["missing_prerequisites"]
+                    + settled_environment["missing_runtime_dependencies"]
+                )
+                step_message, response_message, recovery = _download_follow_up_message(
+                    dependency["label"],
+                    remaining=remaining,
+                )
+                step = _set_step(
+                    state,
+                    "download",
+                    "needs_action",
+                    step_message,
+                    error=f"{dependency['label']} still needs to finish setting up.",
+                    recovery_instructions=recovery,
+                    can_retry=True,
+                    can_repair=True,
+                )
+                _write_installer_state(state)
+                return {
+                    "attempted": True,
+                    "installed": installed,
+                    "remaining": remaining or [dependency["label"]],
+                    "message": response_message,
+                    "environment": settled_environment,
+                    "step": step,
+                }
+
             installed.append(dependency["label"])
 
         refreshed_environment = _collect_environment_result()

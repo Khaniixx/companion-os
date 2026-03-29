@@ -302,6 +302,45 @@ describe("InstallOpenClaw", () => {
     });
   });
 
+  it("explains the Ollama handoff clearly when Windows finishes the install externally", async () => {
+    const installerApi = createInstallerApiMock((status) => {
+      status.current_step = "download";
+      status.steps.download.status = "needs_action";
+      status.steps.download.message = "Ollama is finishing setup";
+      status.steps.download.error = "Ollama still needs to finish setting up.";
+      status.steps.download.can_retry = true;
+      status.steps.download.can_repair = true;
+      status.steps.download.recovery_instructions = [
+        "Windows may open Ollama after installation so it can finish preparing the local runtime.",
+        "Leave Ollama open for a moment, then return here and choose Retry.",
+      ];
+      status.environment = {
+        ...status.environment,
+        checks: status.environment.checks.map((dependency) =>
+          dependency.id === "rust" || dependency.id === "msvc"
+            ? { ...dependency, installed: true, version: dependency.version ?? "Installed" }
+            : dependency,
+        ),
+        rust_installed: true,
+        cpp_toolchain_installed: true,
+        missing_prerequisites: [],
+        missing_runtime_dependencies: ["Ollama"],
+      };
+    });
+
+    render(<InstallOpenClaw installerApi={installerApi} onComplete={vi.fn()} />);
+
+    expect(
+      await screen.findAllByText("Ollama is finishing setup"),
+    ).not.toHaveLength(0);
+    expect(
+      screen.getByText(/Windows may open Ollama after installation/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Retry" }),
+    ).toBeInTheDocument();
+  });
+
   it("recovers from an interrupted install after restart", async () => {
     const repairedStatus = createStatus({
       current_step: "install-openclaw",

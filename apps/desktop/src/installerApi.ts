@@ -119,18 +119,44 @@ export type InstallerApi = {
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+const RUNTIME_BOOT_ATTEMPTS = 20;
+const RUNTIME_BOOT_DELAY_MS = 500;
+
+function wait(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, init);
+  let lastError: Error | null = null;
 
-  if (!response.ok) {
-    const errorPayload = (await response.json().catch(() => null)) as
-      | { detail?: string }
-      | null;
-    throw new Error(errorPayload?.detail ?? `Runtime returned ${response.status}`);
+  for (let attempt = 0; attempt < RUNTIME_BOOT_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(`${API_BASE_URL}${path}`, init);
+
+      if (!response.ok) {
+        const errorPayload = (await response.json().catch(() => null)) as
+          | { detail?: string }
+          | null;
+        throw new Error(errorPayload?.detail ?? `Runtime returned ${response.status}`);
+      }
+
+      return (await response.json()) as T;
+    } catch (error) {
+      lastError =
+        error instanceof Error ? error : new Error("Runtime request failed");
+      if (error instanceof Error && !/fetch|network|offline|failed/i.test(error.message)) {
+        break;
+      }
+      if (attempt === RUNTIME_BOOT_ATTEMPTS - 1) {
+        break;
+      }
+      await wait(RUNTIME_BOOT_DELAY_MS);
+    }
   }
 
-  return (await response.json()) as T;
+  throw lastError ?? new Error("Runtime request failed");
 }
 
 export const installerApi: InstallerApi = {

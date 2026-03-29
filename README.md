@@ -160,7 +160,7 @@ Core features should work without requiring API keys during this default path.
 The installer is expected to be resumable and product-safe:
 
 - Save installer progress locally so a restart resumes from the current step instead of starting over.
-- Detect Node.js, Rust, the Windows C++ / MSVC toolchain where required, and the local model runtime dependencies required for OpenClaw.
+- Detect Node.js, Rust, and the Windows C++ / MSVC toolchain where local desktop builds still require them, while packaged installs focus on the runtime dependencies required for OpenClaw.
 - Attempt silent setup where it is reliable, and switch to guided repair steps with exact next actions when manual intervention is needed.
 - Show clear per-step states for pending, active, complete, failed, and needs action.
 - Stop safely on timeouts or installer hangs, then expose clear Retry and Repair paths instead of leaving the user stranded.

@@ -378,6 +378,111 @@ def test_download_step_returns_guided_repair_when_winget_is_missing(
         "App Installer" in instruction
         for instruction in payload["step"]["recovery_instructions"]
     )
+    assert any(
+        "Node.js" in instruction for instruction in payload["step"]["recovery_instructions"]
+    )
+    assert not any(
+        "Rust" in instruction for instruction in payload["step"]["recovery_instructions"]
+    )
+
+
+def test_packaged_windows_download_only_blocks_on_ollama(monkeypatch) -> None:
+    monkeypatch.setattr(installer.sys, "platform", "win32")
+    monkeypatch.setattr(installer.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(installer, "_command_exists", lambda _name: False)
+
+    response = client.post("/api/installer/download")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["step"]["status"] == "needs_action"
+    assert payload["environment"]["missing_prerequisites"] == []
+    assert payload["environment"]["missing_runtime_dependencies"] == ["Ollama"]
+    assert payload["remaining"] == ["Ollama"]
+    assert "Ollama" in payload["step"]["message"]
+    assert not any(
+        "Node.js" in instruction for instruction in payload["step"]["recovery_instructions"]
+    )
+    assert not any(
+        "Rust" in instruction for instruction in payload["step"]["recovery_instructions"]
+    )
+
+
+def test_download_step_explains_ollama_windows_handoff(monkeypatch) -> None:
+    monkeypatch.setattr(installer.sys, "platform", "win32")
+
+    initial_environment = [
+        make_dependency(
+            dependency_id="nodejs",
+            label="Node.js",
+            category="prerequisite",
+            installed=True,
+            version="v22.0.0",
+        ),
+        make_dependency(
+            dependency_id="rust",
+            label="Rust",
+            category="prerequisite",
+            installed=True,
+            version="rustc 1.85.0",
+        ),
+        make_dependency(
+            dependency_id="msvc",
+            label="Windows C++ / MSVC Toolchain",
+            category="prerequisite",
+            installed=True,
+            version="Build Tools detected",
+        ),
+        make_dependency(
+            dependency_id="ollama",
+            label="Ollama",
+            category="runtime",
+            installed=False,
+        ),
+    ]
+
+    monkeypatch.setattr(installer, "_environment_checks", lambda: initial_environment)
+    monkeypatch.setattr(installer, "_command_exists", lambda name: name == "winget")
+    monkeypatch.setattr(
+        installer,
+        "_run_install_command",
+        lambda _command, *, timeout_seconds: {
+            "ok": True,
+            "timed_out": False,
+            "returncode": 0,
+            "output": "",
+        },
+    )
+    monkeypatch.setattr(
+        installer,
+        "_wait_for_dependency_ready",
+        lambda _label: installer.EnvironmentCheckResult(
+            platform="windows",
+            checks=initial_environment,
+            node_installed=True,
+            rust_installed=True,
+            cpp_toolchain_installed=True,
+            runtime_dependencies_ready=False,
+            missing_prerequisites=[],
+            missing_runtime_dependencies=["Ollama"],
+            all_ready=False,
+        ),
+    )
+
+    response = client.post("/api/installer/download")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["step"]["status"] == "needs_action"
+    assert payload["remaining"] == ["Ollama"]
+    assert payload["step"]["can_retry"] is True
+    assert payload["message"] == (
+        "Ollama may have opened to finish setup on Windows. Leave it open for a moment, then choose Retry here and we will continue from the same place."
+    )
+    assert any(
+        "Windows may open Ollama after installation" in instruction
+        for instruction in payload["step"]["recovery_instructions"]
+    )
 
 
 def test_download_step_returns_retryable_failure_on_timeout(monkeypatch) -> None:
