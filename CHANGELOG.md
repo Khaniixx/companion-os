@@ -11,5 +11,5 @@
 ### Packaging
 
 - Added a Windows packaging workflow to build the current desktop release target with Tauri bundle artifacts.
-- Updated the documentation to state explicitly that the current MVP release scope is Windows-first while macOS and Linux remain tracked future targets.
+- Updated the documentation to state explicitly that the current MVP release scope is Windows-first while macOS and Linux remain experimental targets rather than supported release platforms.
 - Expanded installation and troubleshooting guidance in [README.md](./README.md) with supported platform baselines, hardware guidance, and common packaging failures.

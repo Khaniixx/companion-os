@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "apps/desktop/**"
+      - "packages/**"
       - ".github/workflows/tauri-packaging.yml"
   workflow_dispatch:
 

@@ -7,7 +7,7 @@ Companion OS is an open‑source project to build a **persistent AI companion** 
 Companion OS is currently a Windows-first desktop MVP.
 
 - Windows is the only release target we actively package and validate right now.
-- macOS and Linux remain future targets, but they are not release-ready in the current branch.
+- macOS and Linux are experimental targets in the current branch. They remain under validation and are not release-ready.
 - The Linux GTK/WebKit dependency chain is still tracked because Tauri/Wry transitively resolves `glib 0.18.5`, so cross-platform packaging remains intentionally deferred until that upstream path improves and real machine validation is complete.
 
 ## Vision
@@ -104,7 +104,7 @@ The current desktop MVP is documented and validated as a Windows release:
 
 - Supported release target: Windows 10 22H2 or Windows 11.
 - Required runtime/platform pieces: WebView2 runtime and Visual Studio 2022 Build Tools with the C++ workload for local Rust/Tauri builds.
-- macOS and Linux are not current release targets. Keep them in planning and upstream tracking only until packaging and runtime validation are complete on real machines.
+- Experimental targets: macOS and Linux. Keep them under explicit validation and upstream tracking until packaging and runtime behavior are confirmed on real machines.
 
 Minimum hardware guidance for a local-model-first setup:
 
@@ -120,7 +120,7 @@ The repository now treats dependency and packaging checks as part of the shipped
 - CI runs `npm audit` for the desktop frontend.
 - CI runs `cargo audit` against the locked Tauri dependency graph.
 - CI validates Tauri bundle creation for the current Windows release target through a dedicated packaging workflow.
-- macOS and Linux packaging remain tracked, but they are not release gates in the current branch.
+- macOS and Linux packaging remain experimental and tracked, but they are not release gates in the current branch.
 
 One upstream Rust advisory remains tracked:
 
@@ -144,7 +144,7 @@ If local installation or packaging fails, these are the first checks to make:
 
 Future platform note:
 
-- Linux and macOS packaging issues should be tracked separately from the Windows release path until those platforms are promoted back into the supported matrix.
+- Linux and macOS packaging issues should be tracked separately from the Windows release path until those experimental targets are promoted into the supported release matrix.
 
 ## Desktop Installation Flow
 
