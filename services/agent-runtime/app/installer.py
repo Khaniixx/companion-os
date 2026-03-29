@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -17,6 +18,8 @@ from app.preferences import get_selected_model, set_selected_model
 INSTALLER_STATE_FILE = Path(__file__).resolve().parents[1] / "data" / "installer_state.json"
 OPENCLAW_INSTALL_DIR = Path(__file__).resolve().parents[1] / "data" / "openclaw"
 INSTALL_COMMAND_TIMEOUT_SECONDS: Final[int] = 900
+POST_INSTALL_SETTLE_SECONDS: Final[int] = 20
+POST_INSTALL_POLL_SECONDS: Final[float] = 2.0
 STEP_ORDER: Final[tuple[str, ...]] = (
     "download",
     "install-openclaw",
@@ -1001,6 +1004,64 @@ def _current_missing_dependency_statuses(
     ]
 
 
+def _is_dependency_ready(
+    environment: EnvironmentCheckResult,
+    dependency_label: str,
+) -> bool:
+    return all(item["label"] != dependency_label for item in _current_missing_dependency_statuses(environment))
+
+
+def _wait_for_dependency_ready(
+    dependency_label: str,
+    *,
+    timeout_seconds: int = POST_INSTALL_SETTLE_SECONDS,
+    poll_seconds: float = POST_INSTALL_POLL_SECONDS,
+) -> EnvironmentCheckResult:
+    environment = _collect_environment_result()
+    if _is_dependency_ready(environment, dependency_label):
+        return environment
+
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        time.sleep(poll_seconds)
+        environment = _collect_environment_result()
+        if _is_dependency_ready(environment, dependency_label):
+            return environment
+
+    return environment
+
+
+def _download_follow_up_message(
+    dependency_label: str,
+    *,
+    remaining: list[str],
+) -> tuple[str, str, list[str]]:
+    recovery = _download_recovery_plan(
+        remaining or [dependency_label],
+        package_manager_ready=any(
+            item.get("can_auto_install", False) and not item["installed"]
+            for item in _collect_environment_result()["checks"]
+        ),
+    )
+
+    if _platform_key() == "windows" and dependency_label == "Ollama":
+        return (
+            "Ollama is finishing setup",
+            "Ollama may have opened to finish setup on Windows. Leave it open for a moment, then choose Retry here and we will continue from the same place.",
+            [
+                "Windows may open Ollama after installation so it can finish preparing the local runtime.",
+                "Leave Ollama open for a moment, then return here and choose Retry.",
+                *recovery,
+            ],
+        )
+
+    return (
+        f"We need to finish setting up {dependency_label} before we can continue.",
+        f"Download paused while {dependency_label} waits for setup to finish.",
+        recovery,
+    )
+
+
 def _download_failure_response(
     state: InstallerStatus,
     *,
@@ -1153,6 +1214,39 @@ def download_setup() -> dict[str, object]:
                     timeout=False,
                     output=result["output"],
                 )
+
+            settled_environment = _wait_for_dependency_ready(dependency["label"])
+            state = _read_installer_state()
+            state["environment"] = settled_environment
+            if not _is_dependency_ready(settled_environment, dependency["label"]):
+                remaining = (
+                    settled_environment["missing_prerequisites"]
+                    + settled_environment["missing_runtime_dependencies"]
+                )
+                step_message, response_message, recovery = _download_follow_up_message(
+                    dependency["label"],
+                    remaining=remaining,
+                )
+                step = _set_step(
+                    state,
+                    "download",
+                    "needs_action",
+                    step_message,
+                    error=f"{dependency['label']} still needs to finish setting up.",
+                    recovery_instructions=recovery,
+                    can_retry=True,
+                    can_repair=True,
+                )
+                _write_installer_state(state)
+                return {
+                    "attempted": True,
+                    "installed": installed,
+                    "remaining": remaining or [dependency["label"]],
+                    "message": response_message,
+                    "environment": settled_environment,
+                    "step": step,
+                }
+
             installed.append(dependency["label"])
 
         refreshed_environment = _collect_environment_result()
