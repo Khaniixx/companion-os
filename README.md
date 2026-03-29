@@ -74,7 +74,7 @@ companion-os/
 
 ## Contributing
 
-Companion OS welcomes contributions!  See the `CONTRIBUTING.md` file (to be created) for guidelines on how to get started.  In short:
+Companion OS welcomes contributions. See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on how to get started. In short:
 
 1. Fork the repository and create a feature branch.
 2. Make your changes following the coding standards described in `docs/engineering`.
@@ -253,4 +253,4 @@ For more details, see `docs/skills/creating-skills.md` (to be written).
 
 ## License
 
-This project is currently provided for educational and prototyping purposes.  An appropriate open‑source license will be selected as the project matures.
+Companion OS is available under the [MIT License](./LICENSE).

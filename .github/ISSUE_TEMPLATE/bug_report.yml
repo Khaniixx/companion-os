@@ -1,0 +1,87 @@
+name: Bug report
+description: Report a reproducible defect in the desktop shell, runtime, shared packages, or skills.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for reproducible bugs. For vulnerabilities or permission-boundary issues, use the private process in `SECURITY.md` instead of filing a public issue.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is broken?
+      placeholder: A concise description of the defect.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Installer and onboarding
+        - Desktop shell
+        - Agent runtime
+        - Shared packages or contracts
+        - Skills
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: install_step
+    attributes:
+      label: Installation step impacted
+      description: Select the step if this affects onboarding.
+      options:
+        - Not related to onboarding
+        - Download
+        - Install OpenClaw
+        - Configure AI
+        - Start & Connect
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, screenshots, or stack traces
+      render: shell
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS version, app version or commit, and any relevant local-model setup details.
+      placeholder: Windows 11, commit abc123, local runtime enabled
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched for existing issues before opening this report.
+          required: true
+        - label: I can reproduce this on the latest code I have locally.
+          required: true

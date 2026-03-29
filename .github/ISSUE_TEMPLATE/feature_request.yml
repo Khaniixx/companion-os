@@ -1,0 +1,69 @@
+name: Feature request
+description: Propose a new capability or improvement for Companion OS.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep proposals grounded in the current product rules. Companion OS stays one persistent companion, not a set of separate assistant modes.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What user problem or workflow gap does this address?
+      placeholder: Describe the concrete user need.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the behavior, surface area, and expected outcome.
+    validations:
+      required: true
+  - type: dropdown
+    id: product_area
+    attributes:
+      label: Primary area
+      options:
+        - Installer and onboarding
+        - Desktop shell
+        - Agent runtime
+        - Shared packages or contracts
+        - Skills
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: install_flow
+    attributes:
+      label: Onboarding flow impact
+      description: If this touches setup, which step changes?
+      options:
+        - No onboarding impact
+        - Download
+        - Install OpenClaw
+        - Configure AI
+        - Start & Connect
+    validations:
+      required: true
+  - type: textarea
+    id: identity
+    attributes:
+      label: Companion identity impact
+      description: Explain how the change preserves one persistent companion identity.
+      placeholder: The companion changes state or permissions, but it does not become a separate mode.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation ideas
+      description: What tests, screenshots, or acceptance criteria would show this is done well?
