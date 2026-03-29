@@ -53,9 +53,11 @@ For all code:
 - Add or update tests for behavior you change when the relevant test surface exists.
 - Do not submit code that is untested if a practical automated test can be added.
 - If a test cannot be added yet, note the gap clearly in the handoff or pull request.
+- For installer UI copy, layout, and progress-state work, use the desktop preview harness with `npm run preview:installer` from `apps/desktop` instead of creating ad hoc preview pages or repeatedly rerunning the full installer flow for small visual checks.
 
 ## Working Expectations
 
 - Preserve the contract between the desktop shell, runtime, shared types, and skills.
 - Treat permissions, safety boundaries, and user control as first-class requirements.
 - Prefer incremental, runnable steps over large unverified rewrites.
+- Keep the installer preview harness as the default workflow for future installer UI refinement so contributors can review the real component states quickly without disturbing the shipping onboarding flow.

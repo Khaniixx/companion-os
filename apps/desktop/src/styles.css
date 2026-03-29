@@ -1938,6 +1938,45 @@ textarea {
   text-align: right;
 }
 
+.welcome-desk {
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px;
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top right, rgba(129, 240, 214, 0.12), transparent 38%),
+    linear-gradient(180deg, rgba(15, 31, 53, 0.92), rgba(10, 20, 35, 0.86)),
+    rgba(11, 24, 41, 0.88);
+  border: 1px solid rgba(153, 182, 220, 0.14);
+}
+
+.welcome-desk h4 {
+  margin: 0;
+  font-family: "Bahnschrift", "Segoe UI Variable Display", sans-serif;
+  font-size: 1.18rem;
+}
+
+.welcome-desk p {
+  margin: 0;
+  color: rgba(225, 236, 250, 0.78);
+  line-height: 1.55;
+}
+
+.welcome-desk__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.welcome-desk__meta span {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(18, 54, 57, 0.52);
+  border: 1px solid rgba(120, 236, 214, 0.12);
+  color: #dffaf4;
+  font-size: 0.82rem;
+}
+
 .utility-panel__header {
   display: flex;
   justify-content: space-between;
@@ -2186,6 +2225,13 @@ textarea {
 .quick-action-button:hover {
   transform: translateY(-1px);
   border-color: rgba(129, 240, 214, 0.5);
+}
+
+.quick-action-button--primary {
+  border: 0;
+  color: #07111f;
+  background: linear-gradient(135deg, #81f0d6, #a1b8ff);
+  font-weight: 700;
 }
 
 .quick-action-button:disabled {

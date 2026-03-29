@@ -168,6 +168,15 @@ def test_list_packs_starts_empty() -> None:
     }
 
 
+def test_default_active_pack_profile_is_intentional_when_no_pack_is_selected() -> None:
+    profile = personality_packs.get_active_pack_profile()
+
+    assert profile["display_name"] == "Aster"
+    assert "default Companion OS companion" in profile["system_prompt"]
+    assert "Sound calm, present, and lightly personal." in profile["style_rules"]
+    assert profile["voice"]["style"] == "gentle"
+
+
 def test_install_pack_archive_persists_and_auto_selects() -> None:
     archive_bytes = make_pack_archive()
 

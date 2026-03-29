@@ -46,7 +46,7 @@ function getVoiceCue(
 
 export function CompanionAvatar({
   state,
-  displayName = "Companion",
+  displayName = "Aster",
   avatarConfig,
   voiceConfig,
 }: CompanionAvatarProps) {

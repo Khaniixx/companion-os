@@ -27,6 +27,9 @@ core product rule: one persistent companion, multiple states, no separate modes.
 - Desktop UI work should be covered with Vitest and React Testing Library.
 - Installer UI copy and layout changes can be reviewed locally with
   `npm run preview:installer` from `apps/desktop`.
+- Treat that installer preview harness as the default contributor workflow for
+  future installer UI changes. Prefer it over ad hoc preview files or repeated
+  full installer reruns when validating small visual improvements.
 - When behavior, contracts, or recovery flows change, update the relevant API doc
   and the top-level README in the same slice.
 

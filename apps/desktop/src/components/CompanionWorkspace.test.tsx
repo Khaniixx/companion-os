@@ -972,6 +972,21 @@ describe("CompanionWorkspace", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows a first hello surface before the user starts chatting", async () => {
+    createFetchMock();
+
+    render(<CompanionWorkspace />);
+
+    expect(await screen.findByText("Sunrise is awake locally.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Start with a quick question, ask for something useful, or let the companion ease into the room with you."),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Runtime ready").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", { name: "What can you help with?" }),
+    ).toBeInTheDocument();
+  });
+
   it("updates the utility surface for timer creation and clipboard capture", async () => {
     createFetchMock();
     const clipboardReadText = vi.fn().mockResolvedValue("Copied local snippet");

@@ -259,7 +259,7 @@ describe("InstallOpenClaw", () => {
       screen.getByRole("button", { name: "Continue with local model" }),
     ).toBeInTheDocument();
     expect(
-      screen.getAllByText(/The recommended local model is ready to confirm/i).length,
+      screen.getAllByText(/Choose the first local personality core/i).length,
     ).toBeGreaterThan(0);
     expect(
       screen.getByText(/Core features stay local-first/i),

@@ -55,11 +55,14 @@ type ChatModelStatus = {
   message: string;
 };
 
+const DEFAULT_COMPANION_NAME = "Aster";
+const DEFAULT_STARTER_MESSAGE =
+  "I am awake locally and keeping this desk ready for you.";
 const starterMessages: CompanionMessage[] = [
   {
     id: 1,
     sender: "companion",
-    text: "Installation complete. I am awake on the local runtime and ready to help.",
+    text: DEFAULT_STARTER_MESSAGE,
   },
 ];
 
@@ -1098,7 +1101,7 @@ export function CompanionWorkspace() {
   );
 
   const companionTitle = useMemo(
-    () => activePack?.display_name ?? "Companion",
+    () => activePack?.display_name ?? DEFAULT_COMPANION_NAME,
     [activePack],
   );
   const runtimeReadinessLabel = installerCompleted
@@ -1124,6 +1127,11 @@ export function CompanionWorkspace() {
             : companionState === "reaction"
               ? "Reacting to a timer, shortcut, or cue."
               : "Needs a little help from the local runtime.";
+  const showsStarterWelcome =
+    messages.length === 1 &&
+    messages[0]?.id === 1 &&
+    messages[0]?.sender === "companion" &&
+    messages[0]?.text === DEFAULT_STARTER_MESSAGE;
 
   return (
     <main
@@ -1376,6 +1384,21 @@ export function CompanionWorkspace() {
             <span className="conversation-shell__status">{companionStateSummary}</span>
           </div>
 
+          {showsStarterWelcome ? (
+            <article className="welcome-desk" aria-label="First hello">
+              <span className="eyebrow">First hello</span>
+              <h4>{companionTitle} is awake locally.</h4>
+              <p>
+                Start with a quick question, ask for something useful, or let
+                the companion ease into the room with you.
+              </p>
+              <div className="welcome-desk__meta">
+                <span>{selectedModel}</span>
+                <span>{runtimeReadinessLabel}</span>
+              </div>
+            </article>
+          ) : null}
+
           <div className="message-list" role="log" aria-live="polite">
             {messages.map((message) => (
               <article
@@ -1391,6 +1414,16 @@ export function CompanionWorkspace() {
           </div>
 
           <div className="quick-actions">
+            <button
+              className="quick-action-button quick-action-button--primary"
+              disabled={isSending}
+              type="button"
+              onClick={() => {
+                void submitMessage("What can you help me with right now?");
+              }}
+            >
+              What can you help with?
+            </button>
             <button
               className="quick-action-button"
               disabled={isSending || isLoadingOpenAppPermission}
