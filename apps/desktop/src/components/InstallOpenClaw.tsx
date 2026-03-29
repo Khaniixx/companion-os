@@ -21,36 +21,55 @@ const STEP_SEQUENCE: InstallerStepId[] = [
   "start-connect",
 ];
 
-const STEP_COPY: Record<
-  InstallerStepId,
-  { running: string; retry: string; button: string }
-> = {
-  download: {
-    running: "Downloading setup requirements and preparing this PC for OpenClaw.",
-    retry: "Retry download",
-    button: "Retry download",
-  },
-  "install-openclaw": {
-    running: "Installing OpenClaw locally.",
-    retry: "Retry OpenClaw installation",
-    button: "Retry install",
-  },
-  "configure-ai": {
-    running: "Saving the default local model.",
-    retry: "Retry model configuration",
-    button: "Use this model and continue",
-  },
-  "start-connect": {
-    running: "Starting and connecting the companion.",
-    retry: "Retry Start & Connect",
-    button: "Start companion",
-  },
-};
-
 const DEFAULT_MODEL = "llama3.1:8b-instruct";
 
+function getCurrentStep(
+  installerStatus: InstallerStatus | null,
+): InstallerStep | null {
+  if (!installerStatus) {
+    return null;
+  }
+
+  if (installerStatus.current_step === "complete") {
+    return installerStatus.steps["start-connect"];
+  }
+
+  return installerStatus.steps[installerStatus.current_step as InstallerStepId] ?? null;
+}
+
+function getProgressLabel(status: InstallerStatus | null): string {
+  const currentStep = getCurrentStep(status);
+
+  if (!status || !currentStep) {
+    return "Preparing your local OpenClaw setup";
+  }
+
+  if (status.connection.connected) {
+    return "Your companion is ready";
+  }
+
+  if (currentStep.id === "download") {
+    const missingCount =
+      status.environment.missing_prerequisites.length +
+      status.environment.missing_runtime_dependencies.length;
+    return missingCount > 0 ? "Installing dependencies" : "Checking your system";
+  }
+
+  if (currentStep.id === "install-openclaw") {
+    return "Installing OpenClaw";
+  }
+
+  if (currentStep.id === "configure-ai") {
+    return "Choose your local AI";
+  }
+
+  return "Almost ready";
+}
+
 function summarizeStatus(status: InstallerStatus | null): string {
-  if (!status) {
+  const currentStep = getCurrentStep(status);
+
+  if (!status || !currentStep) {
     return "Preparing a local-first OpenClaw setup.";
   }
 
@@ -58,24 +77,54 @@ function summarizeStatus(status: InstallerStatus | null): string {
     return "OpenClaw is ready. Transitioning into the companion shell.";
   }
 
-  const currentStep = status.steps[status.current_step as InstallerStepId];
-  if (currentStep) {
+  if (currentStep.status === "failed") {
+    return "Something interrupted setup, but your progress is saved. Retry or repair to continue.";
+  }
+
+  if (currentStep.status === "needs_action") {
     return currentStep.message;
   }
 
-  return "Preparing a local-first OpenClaw setup.";
+  return currentStep.message;
 }
 
 function getBadgeLabel(status: InstallerStep["status"]): string {
+  if (status === "active") {
+    return "in progress";
+  }
   if (status === "needs_action") {
     return "needs action";
   }
-
   return status;
 }
 
 function getDependencyStateLabel(dependency: DependencyStatus): string {
   return dependency.installed ? "Ready" : "Needs setup";
+}
+
+function getDependencySummary(dependency: DependencyStatus): string {
+  if (dependency.installed) {
+    return dependency.version ?? "Installed";
+  }
+
+  if (dependency.approx_size_mb) {
+    return `We need to install ${dependency.label} (approx. ${dependency.approx_size_mb} MB).`;
+  }
+
+  return `We need to install ${dependency.label}.`;
+}
+
+function getRetryLabel(stepId: InstallerStepId): string {
+  if (stepId === "download") {
+    return "Retry";
+  }
+  if (stepId === "install-openclaw") {
+    return "Retry install";
+  }
+  if (stepId === "configure-ai") {
+    return "Retry model setup";
+  }
+  return "Retry connection";
 }
 
 export function InstallOpenClaw({
@@ -88,11 +137,11 @@ export function InstallOpenClaw({
   const [statusMessage, setStatusMessage] = useState(
     "Preparing a local-first OpenClaw setup.",
   );
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(true);
   const [isHydrated, setIsHydrated] = useState(false);
-  const [isConfiguring, setIsConfiguring] = useState(false);
   const autoAdvanceRef = useRef(false);
+
+  const currentStep = getCurrentStep(installerStatus);
 
   const progressValue = useMemo(() => {
     if (!installerStatus) {
@@ -105,53 +154,43 @@ export function InstallOpenClaw({
     return Math.round((completeCount / STEP_SEQUENCE.length) * 100);
   }, [installerStatus]);
 
-  const currentStep = installerStatus
-    ? installerStatus.steps[installerStatus.current_step as InstallerStepId] ?? null
-    : null;
-
-  const dependencyChecks = installerStatus?.environment.checks ?? [];
-  const missingItems = installerStatus
-    ? [
-        ...installerStatus.environment.missing_prerequisites,
-        ...installerStatus.environment.missing_runtime_dependencies,
-      ]
-    : [];
-  const isReadyToStartOnly = installerStatus
-    ? installerStatus.steps["configure-ai"].status === "complete" &&
-      installerStatus.steps["start-connect"].status !== "complete" &&
-      !installerStatus.connection.connected
-    : false;
-
   const refreshStatus = useCallback(async (): Promise<InstallerStatus> => {
-    const nextStatus = await installerApi.getInstallerStatus();
+    const [nextStatus, availableModels] = await Promise.all([
+      installerApi.getInstallerStatus(),
+      installerApi.getModels().catch(() => [DEFAULT_MODEL]),
+    ]);
     setInstallerStatus(nextStatus);
     setStatusMessage(summarizeStatus(nextStatus));
-    if (nextStatus.openclaw.installed) {
-      const availableModels = await installerApi.getModels();
-      setModels(availableModels.length ? availableModels : [DEFAULT_MODEL]);
-      setSelectedModel(
-        availableModels.includes(nextStatus.ai.model)
-          ? nextStatus.ai.model
-          : availableModels.includes(DEFAULT_MODEL)
-            ? DEFAULT_MODEL
-            : (availableModels[0] ?? DEFAULT_MODEL),
-      );
-    }
+    setModels(availableModels.length ? availableModels : [DEFAULT_MODEL]);
+    setSelectedModel((currentModel) => {
+      const preferredModel = nextStatus.ai.model;
+      if (availableModels.includes(preferredModel)) {
+        return preferredModel;
+      }
+      if (availableModels.includes(currentModel)) {
+        return currentModel;
+      }
+      if (availableModels.includes(DEFAULT_MODEL)) {
+        return DEFAULT_MODEL;
+      }
+      return availableModels[0] ?? DEFAULT_MODEL;
+    });
     return nextStatus;
   }, [installerApi]);
 
   const runStep = useCallback(
     async (stepId: InstallerStepId): Promise<InstallerStatus | null> => {
       setIsBusy(true);
-      setErrorMessage(null);
-      setStatusMessage(STEP_COPY[stepId].running);
+      setStatusMessage("Saving your progress and continuing setup.");
 
       try {
         if (stepId === "download") {
           await installerApi.downloadSetup();
         } else if (stepId === "install-openclaw") {
           await installerApi.installOpenClaw();
-        } else if (stepId === "start-connect") {
+        } else if (stepId === "configure-ai") {
+          await installerApi.configureAI(selectedModel);
+        } else {
           await installerApi.startAndConnect();
         }
 
@@ -160,62 +199,61 @@ export function InstallOpenClaw({
           onComplete();
         }
         return nextStatus;
-      } catch (error) {
-        const detail =
-          error instanceof Error ? error.message : "Unknown installer failure";
-        setErrorMessage(detail);
-
+      } catch {
         try {
           return await refreshStatus();
-        } catch {
-          setStatusMessage("The installer needs attention before it can continue.");
-          return null;
+        } finally {
+          setStatusMessage(
+            "Setup paused safely. Check the guidance below, then retry or repair.",
+          );
         }
       } finally {
         setIsBusy(false);
         setIsHydrated(true);
       }
     },
-    [installerApi, onComplete, refreshStatus],
+    [installerApi, onComplete, refreshStatus, selectedModel],
   );
+
+  const handleRepair = useCallback(async (): Promise<void> => {
+    setIsBusy(true);
+    setStatusMessage("Repairing the local setup and resuming from where you left off.");
+
+    try {
+      const result = await installerApi.repair();
+      setInstallerStatus(result.status);
+      setStatusMessage(result.message);
+      if (result.status.connection.connected) {
+        onComplete();
+      }
+    } catch {
+      try {
+        const nextStatus = await refreshStatus();
+        setStatusMessage(summarizeStatus(nextStatus));
+      } catch {
+        setStatusMessage(
+          "We could not reconnect to setup just yet. Please try Repair or Retry again in a moment.",
+        );
+      }
+    } finally {
+      setIsBusy(false);
+      setIsHydrated(true);
+    }
+  }, [installerApi, onComplete, refreshStatus]);
 
   useEffect(() => {
     let active = true;
 
     async function load(): Promise<void> {
       try {
-        const nextStatus = await installerApi.getInstallerStatus();
+        const nextStatus = await refreshStatus();
         if (!active) {
           return;
         }
 
-        setInstallerStatus(nextStatus);
-        setStatusMessage(summarizeStatus(nextStatus));
-
-        if (nextStatus.openclaw.installed) {
-          const availableModels = await installerApi.getModels();
-          if (!active) {
-            return;
-          }
-
-          setModels(availableModels.length ? availableModels : [DEFAULT_MODEL]);
-          setSelectedModel(
-            availableModels.includes(nextStatus.ai.model)
-              ? nextStatus.ai.model
-              : availableModels.includes(DEFAULT_MODEL)
-                ? DEFAULT_MODEL
-                : (availableModels[0] ?? DEFAULT_MODEL),
-          );
+        if (nextStatus.connection.connected) {
+          onComplete();
         }
-      } catch (error) {
-        if (!active) {
-          return;
-        }
-
-        const detail =
-          error instanceof Error ? error.message : "Unknown installer failure";
-        setErrorMessage(detail);
-        setStatusMessage("The installer could not load its saved setup state.");
       } finally {
         if (active) {
           setIsBusy(false);
@@ -229,10 +267,10 @@ export function InstallOpenClaw({
     return () => {
       active = false;
     };
-  }, [installerApi]);
+  }, [onComplete, refreshStatus]);
 
   useEffect(() => {
-    if (!installerStatus || !isHydrated || isBusy || isConfiguring) {
+    if (!installerStatus || !isHydrated || isBusy || autoAdvanceRef.current) {
       return;
     }
 
@@ -241,24 +279,26 @@ export function InstallOpenClaw({
       return;
     }
 
-    if (autoAdvanceRef.current) {
+    const activeStep = getCurrentStep(installerStatus);
+    if (!activeStep) {
       return;
     }
 
-    const downloadStep = installerStatus.steps.download;
-    const installStep = installerStatus.steps["install-openclaw"];
-    const configureStep = installerStatus.steps["configure-ai"];
-    const startStep = installerStatus.steps["start-connect"];
-
     let nextStep: InstallerStepId | null = null;
-    if (downloadStep.status === "pending" || downloadStep.status === "active") {
+    if (
+      activeStep.id === "download" &&
+      (activeStep.status === "pending" || activeStep.status === "active")
+    ) {
       nextStep = "download";
     } else if (
-      downloadStep.status === "complete" &&
-      (installStep.status === "pending" || installStep.status === "active")
+      activeStep.id === "install-openclaw" &&
+      (activeStep.status === "pending" || activeStep.status === "active")
     ) {
       nextStep = "install-openclaw";
-    } else if (startStep.status === "active" && configureStep.status === "complete") {
+    } else if (
+      activeStep.id === "start-connect" &&
+      (activeStep.status === "pending" || activeStep.status === "active")
+    ) {
       nextStep = "start-connect";
     }
 
@@ -270,36 +310,7 @@ export function InstallOpenClaw({
     void runStep(nextStep).finally(() => {
       autoAdvanceRef.current = false;
     });
-  }, [installerStatus, isBusy, isConfiguring, isHydrated, onComplete, runStep]);
-
-  const handleConfigureAI = useCallback(async (): Promise<void> => {
-    setIsBusy(true);
-    setIsConfiguring(true);
-    setErrorMessage(null);
-    setStatusMessage(STEP_COPY["configure-ai"].running);
-
-    try {
-      await installerApi.configureAI(selectedModel);
-      const configuredStatus = await refreshStatus();
-
-      if (configuredStatus.steps["start-connect"].status !== "complete") {
-        await runStep("start-connect");
-      }
-    } catch (error) {
-      const detail =
-        error instanceof Error ? error.message : "Unknown configuration error";
-      setErrorMessage(detail);
-
-      try {
-        await refreshStatus();
-      } catch {
-        setStatusMessage("The installer needs attention before it can continue.");
-      }
-    } finally {
-      setIsBusy(false);
-      setIsConfiguring(false);
-    }
-  }, [installerApi, refreshStatus, runStep, selectedModel]);
+  }, [installerStatus, isBusy, isHydrated, onComplete, runStep]);
 
   if (!installerStatus) {
     return (
@@ -315,6 +326,19 @@ export function InstallOpenClaw({
     );
   }
 
+  const dependencyChecks = installerStatus.environment.checks;
+  const progressLabel = getProgressLabel(installerStatus);
+  const recoveryInstructions = currentStep?.recovery_instructions ?? [];
+  const canConfigureModel =
+    installerStatus.openclaw.installed &&
+    !installerStatus.connection.connected &&
+    !isBusy;
+  const primaryButtonLabel =
+    installerStatus.steps["configure-ai"].status === "complete" &&
+    installerStatus.steps["start-connect"].status !== "complete"
+      ? "Start companion"
+      : "Continue with local model";
+
   return (
     <main className="installer-shell">
       <section className="installer-hero">
@@ -323,15 +347,14 @@ export function InstallOpenClaw({
           <h1>Bring the companion online with a local-first install.</h1>
           <p>
             Companion OS follows four clear steps: Download, Install OpenClaw,
-            Configure AI, then Start & Connect. The download stage checks this
-            PC, prepares prerequisites where it is safe, and keeps the default
-            path local-first.
+            Configure AI, then Start & Connect. We save progress after every
+            transition, so you can always resume from where you left off.
           </p>
         </div>
 
         <div className="installer-progress-card">
           <div className="installer-progress-card__header">
-            <span>Progress</span>
+            <span>{progressLabel}</span>
             <strong>{progressValue}%</strong>
           </div>
           <div className="installer-progress-bar" aria-hidden="true">
@@ -341,9 +364,9 @@ export function InstallOpenClaw({
             />
           </div>
           <p>{statusMessage}</p>
-          {errorMessage ? (
-            <p className="installer-error" role="alert">
-              {errorMessage}
+          {currentStep?.status === "failed" || currentStep?.status === "needs_action" ? (
+            <p className="installer-error" role="status">
+              We paused safely. Use the guidance below to continue.
             </p>
           ) : null}
         </div>
@@ -370,9 +393,6 @@ export function InstallOpenClaw({
                   </div>
                   <p>{step.description}</p>
                   <p className="installer-step__message">{step.message}</p>
-                  {step.error ? (
-                    <p className="installer-step__error">{step.error}</p>
-                  ) : null}
                 </div>
               </article>
             );
@@ -382,7 +402,7 @@ export function InstallOpenClaw({
         <aside className="installer-sidebar">
           <section className="installer-panel">
             <span className="eyebrow">Environment</span>
-            <h2>Local readiness</h2>
+            <h2>Checking your system</h2>
             <div className="installer-dependency-list">
               {dependencyChecks.map((dependency) => (
                 <article className="installer-dependency" key={dependency.id}>
@@ -396,54 +416,58 @@ export function InstallOpenClaw({
                       {getDependencyStateLabel(dependency)}
                     </span>
                   </div>
-                  <p>
-                    {dependency.installed
-                      ? dependency.version ?? "Installed"
-                      : dependency.guidance[0]}
-                  </p>
+                  <p>{getDependencySummary(dependency)}</p>
                 </article>
               ))}
             </div>
-            {missingItems.length ? (
-              <p className="installer-panel__hint">
-                Missing now: <strong>{missingItems.join(", ")}</strong>
-              </p>
-            ) : (
-              <p className="installer-panel__hint">
-                This PC is ready for the local OpenClaw path.
-              </p>
-            )}
+            <p className="installer-panel__hint">
+              Platform: <strong>{installerStatus.environment.platform}</strong>
+            </p>
           </section>
 
           <section className="installer-panel">
             <span className="eyebrow">Guidance</span>
-            <h2>Next step</h2>
+            <h2>What happens next</h2>
             <p className="installer-panel__hint">
               {currentStep?.message ?? "The installer is loading."}
             </p>
-            {currentStep?.recovery_instructions.length ? (
+            {recoveryInstructions.length ? (
               <ol className="installer-recovery-list">
-                {currentStep.recovery_instructions.map((instruction) => (
+                {recoveryInstructions.map((instruction) => (
                   <li key={instruction}>{instruction}</li>
                 ))}
               </ol>
             ) : (
               <p className="installer-panel__hint">
-                Silent setup continues automatically where it is safe and reliable.
+                Companion OS keeps moving automatically whenever it is safe to do so.
               </p>
             )}
-            {currentStep?.can_retry ? (
-              <button
-                className="installer-secondary-button"
-                disabled={isBusy || isConfiguring}
-                type="button"
-                onClick={() => {
-                  void runStep(currentStep.id);
-                }}
-              >
-                {STEP_COPY[currentStep.id].retry}
-              </button>
-            ) : null}
+            <div className="installer-panel__actions">
+              {currentStep?.can_retry ? (
+                <button
+                  className="installer-secondary-button"
+                  disabled={isBusy}
+                  type="button"
+                  onClick={() => {
+                    void runStep(currentStep.id);
+                  }}
+                >
+                  {getRetryLabel(currentStep.id)}
+                </button>
+              ) : null}
+              {currentStep?.can_repair ? (
+                <button
+                  className="installer-secondary-button"
+                  disabled={isBusy}
+                  type="button"
+                  onClick={() => {
+                    void handleRepair();
+                  }}
+                >
+                  Repair setup
+                </button>
+              ) : null}
+            </div>
           </section>
 
           <section className="installer-panel">
@@ -456,13 +480,7 @@ export function InstallOpenClaw({
               className="installer-select"
               id="default-model"
               value={selectedModel}
-              disabled={
-                (installerStatus.steps["configure-ai"].status !== "pending" &&
-                  installerStatus.steps["configure-ai"].status !== "active" &&
-                  installerStatus.steps["configure-ai"].status !== "failed") ||
-                !installerStatus.openclaw.installed ||
-                isBusy
-              }
+              disabled={!canConfigureModel}
               onChange={(event) => setSelectedModel(event.target.value)}
             >
               {models.map((model) => (
@@ -476,30 +494,25 @@ export function InstallOpenClaw({
               default product flow.
             </p>
             <p className="installer-panel__hint">
-              OpenClaw path: <strong>{installerStatus.openclaw.install_path}</strong>
+              If you are unsure, keep the recommended model and continue.
             </p>
             <button
               className="installer-primary-button"
-              disabled={
-                !installerStatus.openclaw.installed ||
-                isBusy ||
-                installerStatus.connection.connected
-              }
+              disabled={!canConfigureModel}
               type="button"
               onClick={() => {
-                if (isReadyToStartOnly) {
+                if (
+                  installerStatus.steps["configure-ai"].status === "complete" &&
+                  installerStatus.steps["start-connect"].status !== "complete"
+                ) {
                   void runStep("start-connect");
                   return;
                 }
 
-                void handleConfigureAI();
+                void runStep("configure-ai");
               }}
             >
-              {isConfiguring
-                ? "Finishing setup..."
-                : isReadyToStartOnly
-                  ? STEP_COPY["start-connect"].button
-                  : STEP_COPY["configure-ai"].button}
+              {primaryButtonLabel}
             </button>
           </section>
         </aside>

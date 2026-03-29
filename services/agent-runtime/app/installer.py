@@ -5,21 +5,30 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Final, Literal, TypedDict
 
-from app.model_catalog import SUPPORTED_LOCAL_MODELS
+from app.model_catalog import RECOMMENDED_LOCAL_MODEL, SUPPORTED_LOCAL_MODELS
 from app.preferences import get_selected_model, set_selected_model
 
 INSTALLER_STATE_FILE = Path(__file__).resolve().parents[1] / "data" / "installer_state.json"
 OPENCLAW_INSTALL_DIR = Path(__file__).resolve().parents[1] / "data" / "openclaw"
+INSTALL_COMMAND_TIMEOUT_SECONDS: Final[int] = 900
 STEP_ORDER: Final[tuple[str, ...]] = (
     "download",
     "install-openclaw",
     "configure-ai",
     "start-connect",
 )
+STEP_TITLES: Final[dict[str, str]] = {
+    "download": "Download",
+    "install-openclaw": "Install OpenClaw",
+    "configure-ai": "Configure AI",
+    "start-connect": "Start & Connect",
+}
 StepStatus = Literal["pending", "active", "complete", "failed", "needs_action"]
 
 _installer_lock = Lock()
@@ -32,9 +41,12 @@ class DependencyStatus(TypedDict):
     installed: bool
     version: str | None
     guidance: list[str]
+    approx_size_mb: int | None
+    can_auto_install: bool
 
 
 class EnvironmentCheckResult(TypedDict):
+    platform: str
     checks: list[DependencyStatus]
     node_installed: bool
     rust_installed: bool
@@ -55,6 +67,8 @@ class InstallerStepState(TypedDict):
     recovery_instructions: list[str]
     can_retry: bool
     can_repair: bool
+    updated_at: str
+    attempt_count: int
 
 
 class InstallerStatus(TypedDict):
@@ -67,14 +81,68 @@ class InstallerStatus(TypedDict):
     connection: dict[str, object]
 
 
+class InstallerActionResult(TypedDict):
+    message: str
+    resumed_step: str
+    step: InstallerStepState
+    status: InstallerStatus
+
+
+class CommandExecutionResult(TypedDict):
+    ok: bool
+    timed_out: bool
+    returncode: int | None
+    output: str
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _platform_key() -> str:
+    if sys.platform.startswith("win"):
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    if sys.platform.startswith("linux"):
+        return "linux"
+    return "other"
+
+
+def _requires_msvc_toolchain() -> bool:
+    return _platform_key() == "windows"
+
+
+def _state_version() -> str:
+    return "installer-state-v2"
+
+
+def _default_manifest_path() -> str:
+    return str(OPENCLAW_INSTALL_DIR / "openclaw.json")
+
+
+def _approx_size_for_dependency(label: str) -> int | None:
+    return {
+        "Node.js": 120,
+        "Rust": 500,
+        "Windows C++ / MSVC Toolchain": 6000,
+        "Ollama": 1500,
+    }.get(label)
+
+
 def _empty_environment() -> EnvironmentCheckResult:
+    missing_prerequisites = ["Node.js", "Rust"]
+    if _requires_msvc_toolchain():
+        missing_prerequisites.append("Windows C++ / MSVC Toolchain")
+
     return EnvironmentCheckResult(
+        platform=_platform_key(),
         checks=[],
         node_installed=False,
         rust_installed=False,
-        cpp_toolchain_installed=False,
+        cpp_toolchain_installed=not _requires_msvc_toolchain(),
         runtime_dependencies_ready=False,
-        missing_prerequisites=["Node.js", "Rust", "Windows C++ / MSVC Toolchain"],
+        missing_prerequisites=missing_prerequisites,
         missing_runtime_dependencies=["Ollama"],
         all_ready=False,
     )
@@ -91,6 +159,8 @@ def _make_step(step_id: str, title: str, description: str, message: str) -> Inst
         recovery_instructions=[],
         can_retry=False,
         can_repair=False,
+        updated_at=_now_iso(),
+        attempt_count=0,
     )
 
 
@@ -99,26 +169,26 @@ def _default_steps() -> dict[str, InstallerStepState]:
         "download": _make_step(
             "download",
             "Download",
-            "Prepare the local setup package and required prerequisites for this PC.",
-            "Download has not started yet.",
+            "Prepare the local setup package and any prerequisites needed on this device.",
+            "Checking your system before setup begins.",
         ),
         "install-openclaw": _make_step(
             "install-openclaw",
             "Install OpenClaw",
-            "Create the local OpenClaw runtime files used by the desktop shell.",
-            "Waiting for Download to finish.",
+            "Prepare the local OpenClaw runtime files used by the desktop companion.",
+            "OpenClaw will install after your system is ready.",
         ),
         "configure-ai": _make_step(
             "configure-ai",
             "Configure AI",
-            "Choose the default local, open-source model for first-run use.",
-            "Choose a local model to continue.",
+            "Choose the default local, open-source model for the first run.",
+            "The recommended local model is ready to confirm.",
         ),
         "start-connect": _make_step(
             "start-connect",
             "Start & Connect",
-            "Bring the local companion online and connect the desktop shell.",
-            "OpenClaw will start after AI configuration.",
+            "Bring the local runtime online and connect the companion shell.",
+            "Almost ready. The companion will connect after AI setup.",
         ),
     }
 
@@ -132,21 +202,24 @@ def create_default_installer_state() -> InstallerStatus:
         openclaw={
             "installed": False,
             "install_path": str(OPENCLAW_INSTALL_DIR),
-            "manifest_path": str(OPENCLAW_INSTALL_DIR / "openclaw.json"),
+            "manifest_path": _default_manifest_path(),
         },
         ai={"provider": "local", "model": get_selected_model()},
         connection={"connected": False, "message": "Setup has not completed yet."},
     )
 
 
+def _atomic_write_json(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(f"{path.suffix}.tmp")
+    temp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    temp_path.replace(path)
+
+
 def _ensure_installer_state_file() -> None:
     if INSTALLER_STATE_FILE.exists():
         return
-    INSTALLER_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    INSTALLER_STATE_FILE.write_text(
-        json.dumps(create_default_installer_state(), indent=2),
-        encoding="utf-8",
-    )
+    _atomic_write_json(INSTALLER_STATE_FILE, create_default_installer_state())
 
 
 def _normalize_step(raw_step: object, default_step: InstallerStepState) -> InstallerStepState:
@@ -165,12 +238,15 @@ def _normalize_step(raw_step: object, default_step: InstallerStepState) -> Insta
         recovery_instructions=[str(item) for item in raw_step.get("recovery_instructions", [])],
         can_retry=bool(raw_step.get("can_retry", default_step["can_retry"])),
         can_repair=bool(raw_step.get("can_repair", default_step["can_repair"])),
+        updated_at=str(raw_step.get("updated_at", default_step["updated_at"])),
+        attempt_count=max(0, int(raw_step.get("attempt_count", default_step["attempt_count"]))),
     )
 
 
 def _normalize_environment(raw_environment: object) -> EnvironmentCheckResult:
     if not isinstance(raw_environment, dict):
         return _empty_environment()
+
     checks = [
         DependencyStatus(
             id=str(item.get("id", "")),
@@ -179,18 +255,31 @@ def _normalize_environment(raw_environment: object) -> EnvironmentCheckResult:
             installed=bool(item.get("installed", False)),
             version=str(item["version"]) if item.get("version") is not None else None,
             guidance=[str(entry) for entry in item.get("guidance", [])],
+            approx_size_mb=(
+                int(item["approx_size_mb"])
+                if item.get("approx_size_mb") is not None
+                else None
+            ),
+            can_auto_install=bool(item.get("can_auto_install", False)),
         )
         for item in raw_environment.get("checks", [])
         if isinstance(item, dict)
     ]
+
     if not checks:
         return _empty_environment()
+
     return EnvironmentCheckResult(
+        platform=str(raw_environment.get("platform", _platform_key())),
         checks=checks,
         node_installed=bool(raw_environment.get("node_installed", False)),
         rust_installed=bool(raw_environment.get("rust_installed", False)),
-        cpp_toolchain_installed=bool(raw_environment.get("cpp_toolchain_installed", False)),
-        runtime_dependencies_ready=bool(raw_environment.get("runtime_dependencies_ready", False)),
+        cpp_toolchain_installed=bool(
+            raw_environment.get("cpp_toolchain_installed", not _requires_msvc_toolchain())
+        ),
+        runtime_dependencies_ready=bool(
+            raw_environment.get("runtime_dependencies_ready", False)
+        ),
         missing_prerequisites=[str(item) for item in raw_environment.get("missing_prerequisites", [])],
         missing_runtime_dependencies=[
             str(item) for item in raw_environment.get("missing_runtime_dependencies", [])
@@ -205,67 +294,45 @@ def _sync_progress(state: InstallerStatus) -> None:
             state["current_step"] = step_id
             state["completed"] = False
             return
-    state["current_step"] = "complete"
+
     state["completed"] = bool(state["connection"].get("connected", False))
+    state["current_step"] = "complete" if state["completed"] else "start-connect"
 
 
-def _normalize_state(raw_state: object) -> InstallerStatus:
-    defaults = create_default_installer_state()
-    if not isinstance(raw_state, dict):
-        return defaults
-    state = create_default_installer_state()
-    state["environment"] = _normalize_environment(raw_state.get("environment"))
-    raw_steps = raw_state.get("steps")
-    if isinstance(raw_steps, dict):
-        state["steps"] = {
-            step_id: _normalize_step(raw_steps.get(step_id), defaults["steps"][step_id])
-            for step_id in STEP_ORDER
-        }
-    raw_openclaw = raw_state.get("openclaw")
-    if isinstance(raw_openclaw, dict):
-        state["openclaw"] = {
-            "installed": bool(raw_openclaw.get("installed", False)),
-            "install_path": str(raw_openclaw.get("install_path", state["openclaw"]["install_path"])),
-            "manifest_path": str(
-                raw_openclaw.get("manifest_path", state["openclaw"]["manifest_path"])
-            ),
-        }
-    raw_ai = raw_state.get("ai")
-    if isinstance(raw_ai, dict):
-        state["ai"] = {
-            "provider": str(raw_ai.get("provider", state["ai"]["provider"])),
-            "model": str(raw_ai.get("model", state["ai"]["model"])),
-        }
-    raw_connection = raw_state.get("connection")
-    if isinstance(raw_connection, dict):
-        state["connection"] = {
-            "connected": bool(raw_connection.get("connected", False)),
-            "message": str(raw_connection.get("message", state["connection"]["message"])),
-        }
-    _sync_progress(state)
-    return state
+def _resolve_command_path(command_name: str) -> str | None:
+    resolved = shutil.which(command_name)
+    if resolved:
+        return resolved
 
+    if _platform_key() != "windows":
+        return None
 
-def _read_installer_state() -> InstallerStatus:
-    _ensure_installer_state_file()
-    with INSTALLER_STATE_FILE.open("r", encoding="utf-8") as file_handle:
-        return _normalize_state(json.load(file_handle))
+    known_locations = {
+        "node": [Path(r"C:\Program Files\nodejs\node.exe")],
+        "rustc": [Path.home() / ".cargo" / "bin" / "rustc.exe"],
+        "ollama": [Path.home() / "AppData" / "Local" / "Programs" / "Ollama" / "ollama.exe"],
+        "winget": [Path(r"C:\Users\Default\AppData\Local\Microsoft\WindowsApps\winget.exe")],
+    }
 
-
-def _write_installer_state(state: InstallerStatus) -> None:
-    _sync_progress(state)
-    INSTALLER_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    INSTALLER_STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    for path in known_locations.get(command_name, []):
+        if path.exists():
+            return str(path)
+    return None
 
 
 def _command_exists(command_name: str) -> bool:
-    return shutil.which(command_name) is not None
+    return _resolve_command_path(command_name) is not None
 
 
 def _run_command_for_output(command: list[str]) -> str | None:
+    resolved_command = command[:]
+    binary_path = _resolve_command_path(command[0])
+    if binary_path is not None:
+        resolved_command[0] = binary_path
+
     try:
         completed_process = subprocess.run(
-            command,
+            resolved_command,
             check=False,
             capture_output=True,
             text=True,
@@ -279,7 +346,55 @@ def _run_command_for_output(command: list[str]) -> str | None:
     return output.splitlines()[0].strip()
 
 
+def _run_install_command(command: list[str], *, timeout_seconds: int) -> CommandExecutionResult:
+    resolved_command = command[:]
+    binary_path = _resolve_command_path(command[0])
+    if binary_path is not None:
+        resolved_command[0] = binary_path
+
+    try:
+        completed_process = subprocess.run(
+            resolved_command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+        output = "\n".join(
+            part.strip()
+            for part in (completed_process.stdout or "", completed_process.stderr or "")
+            if part.strip()
+        )
+        return {
+            "ok": completed_process.returncode == 0,
+            "timed_out": False,
+            "returncode": completed_process.returncode,
+            "output": output,
+        }
+    except subprocess.TimeoutExpired as error:
+        output = "\n".join(
+            str(part).strip()
+            for part in (error.stdout or "", error.stderr or "")
+            if str(part).strip()
+        )
+        return {
+            "ok": False,
+            "timed_out": True,
+            "returncode": None,
+            "output": output,
+        }
+    except (FileNotFoundError, subprocess.SubprocessError, OSError) as error:
+        return {
+            "ok": False,
+            "timed_out": False,
+            "returncode": None,
+            "output": str(error),
+        }
+
+
 def _cpp_toolchain_installed() -> bool:
+    if not _requires_msvc_toolchain():
+        return True
     if _command_exists("cl") or _command_exists("link"):
         return True
     search_paths = (
@@ -289,71 +404,201 @@ def _cpp_toolchain_installed() -> bool:
     return any(path.exists() and any(path.iterdir()) for path in search_paths)
 
 
-def _dependency_guidance(label: str) -> list[str]:
-    if label == "Node.js":
-        return [
-            "Node.js is required to build and run the desktop shell.",
-            "Silent install command: winget install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements --disable-interactivity",
-            "If silent install does not work, install the latest Node.js LTS manually, reopen Companion OS, and choose Retry.",
-        ]
-    if label == "Rust":
-        return [
-            "Rust is required for the Tauri desktop runtime.",
-            "Silent install command: winget install Rustlang.Rustup --accept-source-agreements --accept-package-agreements --disable-interactivity",
-            "If silent install does not work, install Rust with rustup, reopen Companion OS, and choose Retry.",
-        ]
-    if label == "Windows C++ / MSVC Toolchain":
-        return [
-            "The Windows desktop build needs the Visual Studio C++ build tools.",
-            'Silent install command: winget install Microsoft.VisualStudio.2022.BuildTools --accept-source-agreements --accept-package-agreements --disable-interactivity --override "--quiet --norestart --wait --installWhileDownloading --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.22621"',
-            "If silent install is blocked, install Desktop development with C++ plus the Windows 11 SDK, then choose Retry.",
-        ]
-    return [
-        "Ollama provides the local model runtime for the default setup path.",
-        "Silent install command: winget install Ollama.Ollama --accept-source-agreements --accept-package-agreements --disable-interactivity",
-        "If silent install does not work, install Ollama manually, reopen Companion OS, and choose Retry.",
-    ]
-
-
-def _environment_checks() -> list[DependencyStatus]:
-    node_installed = _command_exists("node")
-    rust_installed = _command_exists("rustc")
-    cpp_installed = _cpp_toolchain_installed()
-    ollama_installed = _command_exists("ollama")
-    return [
+def _dependency_definitions() -> list[dict[str, object]]:
+    definitions: list[dict[str, object]] = [
         {
             "id": "nodejs",
             "label": "Node.js",
             "category": "prerequisite",
-            "installed": node_installed,
-            "version": _run_command_for_output(["node", "--version"]) if node_installed else None,
-            "guidance": _dependency_guidance("Node.js"),
+            "installed": lambda: _command_exists("node"),
+            "version_command": ["node", "--version"],
         },
         {
             "id": "rust",
             "label": "Rust",
             "category": "prerequisite",
-            "installed": rust_installed,
-            "version": _run_command_for_output(["rustc", "--version"]) if rust_installed else None,
-            "guidance": _dependency_guidance("Rust"),
-        },
-        {
-            "id": "msvc",
-            "label": "Windows C++ / MSVC Toolchain",
-            "category": "prerequisite",
-            "installed": cpp_installed,
-            "version": "Build Tools detected" if cpp_installed else None,
-            "guidance": _dependency_guidance("Windows C++ / MSVC Toolchain"),
+            "installed": lambda: _command_exists("rustc"),
+            "version_command": ["rustc", "--version"],
         },
         {
             "id": "ollama",
             "label": "Ollama",
             "category": "runtime",
-            "installed": ollama_installed,
-            "version": _run_command_for_output(["ollama", "--version"]) if ollama_installed else None,
-            "guidance": _dependency_guidance("Ollama"),
+            "installed": lambda: _command_exists("ollama"),
+            "version_command": ["ollama", "--version"],
         },
     ]
+
+    if _requires_msvc_toolchain():
+        definitions.insert(
+            2,
+            {
+                "id": "msvc",
+                "label": "Windows C++ / MSVC Toolchain",
+                "category": "prerequisite",
+                "installed": _cpp_toolchain_installed,
+                "version_command": None,
+            },
+        )
+
+    return definitions
+
+
+def _dependency_guidance(label: str) -> list[str]:
+    platform = _platform_key()
+
+    if label == "Node.js":
+        if platform == "windows":
+            return [
+                "We need Node.js to run the desktop shell.",
+                "Companion OS can try a silent install with App Installer.",
+                "If that does not work, install the latest Node.js LTS manually, reopen Companion OS, and choose Retry.",
+            ]
+        if platform == "macos":
+            return [
+                "We need Node.js to run the desktop shell.",
+                "If Homebrew is available, Companion OS can install it for you.",
+                "If not, install Node.js LTS manually or with Homebrew, reopen Companion OS, and choose Retry.",
+            ]
+        return [
+            "We need Node.js to run the desktop shell.",
+            "Linux setup varies by distribution, so we may need your help for this step.",
+            "Install Node.js LTS with your distro package manager, reopen Companion OS, and choose Retry.",
+        ]
+
+    if label == "Rust":
+        if platform == "windows":
+            return [
+                "We need Rust to build the local desktop runtime.",
+                "Companion OS can try a silent install with App Installer.",
+                "If that does not work, install Rust with rustup, reopen Companion OS, and choose Retry.",
+            ]
+        if platform == "macos":
+            return [
+                "We need Rust to build the local desktop runtime.",
+                "If Homebrew is available, Companion OS can install it for you.",
+                "If not, install Rust manually, reopen Companion OS, and choose Retry.",
+            ]
+        return [
+            "We need Rust to build the local desktop runtime.",
+            "Linux setup varies by distribution, so we may need your help for this step.",
+            "Install Rust with rustup or your distro package manager, reopen Companion OS, and choose Retry.",
+        ]
+
+    if label == "Windows C++ / MSVC Toolchain":
+        return [
+            "We need the Windows C++ build tools for the desktop shell.",
+            "Companion OS can try a quiet Build Tools install when App Installer is available.",
+            "If that does not work, install Visual Studio Build Tools with the Desktop development with C++ workload, then choose Retry.",
+        ]
+
+    if platform == "windows":
+        return [
+            "We need Ollama so the companion can use a local open-source model.",
+            "Companion OS can try a silent install with App Installer.",
+            "If that does not work, install Ollama manually, reopen Companion OS, and choose Retry.",
+        ]
+    if platform == "macos":
+        return [
+            "We need Ollama so the companion can use a local open-source model.",
+            "If Homebrew is available, Companion OS can install it for you.",
+            "If not, install Ollama manually, reopen Companion OS, and choose Retry.",
+        ]
+    return [
+        "We need Ollama so the companion can use a local open-source model.",
+        "Linux setup varies by distribution, so we may need your help for this step.",
+        "Install Ollama manually, reopen Companion OS, and choose Retry.",
+    ]
+
+
+def _dependency_install_command(label: str) -> list[str] | None:
+    platform = _platform_key()
+
+    if platform == "windows":
+        if not _command_exists("winget"):
+            return None
+        commands = {
+            "Node.js": [
+                "winget",
+                "install",
+                "OpenJS.NodeJS.LTS",
+                "--accept-source-agreements",
+                "--accept-package-agreements",
+                "--disable-interactivity",
+            ],
+            "Rust": [
+                "winget",
+                "install",
+                "Rustlang.Rustup",
+                "--accept-source-agreements",
+                "--accept-package-agreements",
+                "--disable-interactivity",
+            ],
+            "Windows C++ / MSVC Toolchain": [
+                "winget",
+                "install",
+                "Microsoft.VisualStudio.2022.BuildTools",
+                "--accept-source-agreements",
+                "--accept-package-agreements",
+                "--disable-interactivity",
+                "--override",
+                (
+                    "--quiet --norestart --wait --installWhileDownloading "
+                    + "--add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 "
+                    + "--add Microsoft.VisualStudio.Component.Windows11SDK.22621"
+                ),
+            ],
+            "Ollama": [
+                "winget",
+                "install",
+                "Ollama.Ollama",
+                "--accept-source-agreements",
+                "--accept-package-agreements",
+                "--disable-interactivity",
+            ],
+        }
+        return commands.get(label)
+
+    if platform == "macos":
+        if not _command_exists("brew"):
+            return None
+        commands = {
+            "Node.js": ["brew", "install", "node"],
+            "Rust": ["brew", "install", "rust"],
+            "Ollama": ["brew", "install", "--cask", "ollama"],
+        }
+        return commands.get(label)
+
+    return None
+
+
+def _environment_checks() -> list[DependencyStatus]:
+    checks: list[DependencyStatus] = []
+
+    for definition in _dependency_definitions():
+        installed = bool(definition["installed"]())
+        label = str(definition["label"])
+        version_command = definition["version_command"]
+        version = None
+        if installed and isinstance(version_command, list):
+            version = _run_command_for_output(version_command)
+        elif installed and label == "Windows C++ / MSVC Toolchain":
+            version = "Build Tools detected"
+
+        checks.append(
+            {
+                "id": str(definition["id"]),
+                "label": label,
+                "category": str(definition["category"]),
+                "installed": installed,
+                "version": version,
+                "guidance": _dependency_guidance(label),
+                "approx_size_mb": _approx_size_for_dependency(label),
+                "can_auto_install": _dependency_install_command(label) is not None,
+            }
+        )
+
+    return checks
 
 
 def _set_step(
@@ -366,6 +611,7 @@ def _set_step(
     recovery_instructions: list[str] | None = None,
     can_retry: bool = False,
     can_repair: bool = False,
+    increment_attempt: bool = False,
 ) -> InstallerStepState:
     step = state["steps"][step_id]
     step["status"] = status
@@ -374,18 +620,31 @@ def _set_step(
     step["recovery_instructions"] = recovery_instructions or []
     step["can_retry"] = can_retry
     step["can_repair"] = can_repair
+    step["updated_at"] = _now_iso()
+    if increment_attempt:
+        step["attempt_count"] = int(step["attempt_count"]) + 1
     return step
+
+
+def _reset_step(step_id: str) -> InstallerStepState:
+    return _default_steps()[step_id]
+
+
+def _reset_steps_from(state: InstallerStatus, step_id: str) -> None:
+    start_index = STEP_ORDER.index(step_id)
+    for current_step_id in STEP_ORDER[start_index:]:
+        state["steps"][current_step_id] = _reset_step(current_step_id)
 
 
 def _promote_default_messages(state: InstallerStatus) -> None:
     if state["steps"]["download"]["status"] == "complete":
         state["steps"]["install-openclaw"]["message"] = (
-            "The device is ready. OpenClaw can be installed locally."
+            "Your system is ready. OpenClaw can be installed locally."
         )
 
-    if state["openclaw"]["installed"]:
+    if bool(state["openclaw"].get("installed")):
         state["steps"]["configure-ai"]["message"] = (
-            "OpenClaw is installed. Choose the local model to finish setup."
+            "Choose your default local model to finish setup."
         )
 
 
@@ -401,24 +660,276 @@ def _collect_environment_result() -> EnvironmentCheckResult:
         for item in checks
         if item["category"] == "runtime" and not item["installed"]
     ]
-    return EnvironmentCheckResult(
-        checks=checks,
-        node_installed=next(
-            item["installed"] for item in checks if item["label"] == "Node.js"
-        ),
-        rust_installed=next(
-            item["installed"] for item in checks if item["label"] == "Rust"
-        ),
-        cpp_toolchain_installed=next(
+
+    node_installed = next(
+        (item["installed"] for item in checks if item["label"] == "Node.js"),
+        False,
+    )
+    rust_installed = next(
+        (item["installed"] for item in checks if item["label"] == "Rust"),
+        False,
+    )
+    cpp_installed = next(
+        (
             item["installed"]
             for item in checks
             if item["label"] == "Windows C++ / MSVC Toolchain"
         ),
+        not _requires_msvc_toolchain(),
+    )
+
+    return EnvironmentCheckResult(
+        platform=_platform_key(),
+        checks=checks,
+        node_installed=node_installed,
+        rust_installed=rust_installed,
+        cpp_toolchain_installed=cpp_installed,
         runtime_dependencies_ready=len(missing_runtime_dependencies) == 0,
         missing_prerequisites=missing_prerequisites,
         missing_runtime_dependencies=missing_runtime_dependencies,
         all_ready=not missing_prerequisites and not missing_runtime_dependencies,
     )
+
+
+def _openclaw_manifest_path(state: InstallerStatus) -> Path:
+    return Path(str(state["openclaw"].get("manifest_path", _default_manifest_path())))
+
+
+def _openclaw_install_health(state: InstallerStatus) -> tuple[bool, str | None]:
+    manifest_path = _openclaw_manifest_path(state)
+    install_path = Path(str(state["openclaw"].get("install_path", OPENCLAW_INSTALL_DIR)))
+
+    if not install_path.exists():
+        return False, "OpenClaw is not installed yet."
+    if not manifest_path.exists():
+        return False, "The OpenClaw install looks incomplete."
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return False, "The OpenClaw install files need repair."
+
+    if manifest.get("runtime") != "openclaw" or not manifest.get("installed", False):
+        return False, "The OpenClaw install files need repair."
+
+    return True, None
+
+
+def _download_recovery_plan(missing_labels: list[str], *, package_manager_ready: bool) -> list[str]:
+    instructions: list[str] = []
+    platform = _platform_key()
+
+    if not package_manager_ready:
+        if platform == "windows":
+            instructions.append(
+                "We could not start the automatic installer because App Installer (winget) is not available."
+            )
+        elif platform == "macos":
+            instructions.append(
+                "We could not start the automatic installer because Homebrew is not available."
+            )
+        else:
+            instructions.append(
+                "Automatic installation is not available on this Linux setup yet."
+            )
+
+    for label in missing_labels:
+        instructions.extend(_dependency_guidance(label))
+
+    instructions.append(
+        "When you are ready, choose Retry to re-check your system and continue from the same point."
+    )
+    return instructions
+
+
+def _interrupted_recovery_plan(step_id: str) -> list[str]:
+    step_title = STEP_TITLES[step_id]
+    return [
+        f"The app was interrupted during {step_title}. Your progress was saved.",
+        "Choose Retry to try the same step again.",
+        "Choose Repair if you want Companion OS to clean up and resume from the last incomplete step.",
+    ]
+
+
+def _apply_state_recovery(state: InstallerStatus) -> InstallerStatus:
+    state["environment"] = _collect_environment_result()
+
+    for step_id in STEP_ORDER:
+        if state["steps"][step_id]["status"] == "active":
+            _set_step(
+                state,
+                step_id,
+                "needs_action",
+                f"{STEP_TITLES[step_id]} was interrupted. Your progress is saved.",
+                error="Setup was interrupted before this step could finish.",
+                recovery_instructions=_interrupted_recovery_plan(step_id),
+                can_retry=True,
+                can_repair=True,
+            )
+
+    if state["environment"]["all_ready"]:
+        if state["steps"]["download"]["status"] in {"pending", "active", "failed", "needs_action"}:
+            _set_step(
+                state,
+                "download",
+                "complete",
+                "Your system already has everything needed for the local install.",
+            )
+    elif state["steps"]["download"]["status"] == "complete":
+        _set_step(
+            state,
+            "download",
+            "needs_action",
+            "We still need to finish a few essentials before OpenClaw can install.",
+            error="Some required dependencies are still missing.",
+            recovery_instructions=_download_recovery_plan(
+                state["environment"]["missing_prerequisites"]
+                + state["environment"]["missing_runtime_dependencies"],
+                package_manager_ready=any(
+                    item.get("can_auto_install", False) and not item["installed"]
+                    for item in state["environment"]["checks"]
+                ),
+            ),
+            can_retry=True,
+            can_repair=True,
+        )
+
+    install_healthy, install_issue = _openclaw_install_health(state)
+    if install_healthy:
+        state["openclaw"]["installed"] = True
+        state["openclaw"]["install_path"] = str(OPENCLAW_INSTALL_DIR)
+        state["openclaw"]["manifest_path"] = _default_manifest_path()
+        if state["steps"]["download"]["status"] == "complete" and state["steps"][
+            "install-openclaw"
+        ]["status"] in {"pending", "active", "failed", "needs_action"}:
+            _set_step(
+                state,
+                "install-openclaw",
+                "complete",
+                "OpenClaw is already installed locally.",
+            )
+    elif state["steps"]["install-openclaw"]["status"] == "complete":
+        state["openclaw"]["installed"] = False
+        _set_step(
+            state,
+            "install-openclaw",
+            "needs_action",
+            "OpenClaw needs a quick repair before setup can continue.",
+            error=install_issue,
+            recovery_instructions=[
+                "Choose Repair and Companion OS will rebuild the local OpenClaw files.",
+            ],
+            can_retry=True,
+            can_repair=True,
+        )
+        _reset_steps_from(state, "configure-ai")
+
+    selected_model = str(state["ai"].get("model", get_selected_model())).strip().lower()
+    if selected_model not in SUPPORTED_LOCAL_MODELS:
+        state["ai"] = {"provider": "local", "model": RECOMMENDED_LOCAL_MODEL}
+        _set_step(
+            state,
+            "configure-ai",
+            "needs_action",
+            "We need to reselect the local model before the companion can start.",
+            error="The saved model is no longer supported.",
+            recovery_instructions=[
+                "Choose the recommended local model to continue.",
+                "If you are unsure, keep the default selection and continue.",
+            ],
+            can_retry=True,
+            can_repair=True,
+        )
+        state["steps"]["start-connect"] = _reset_step("start-connect")
+
+    if state["steps"]["start-connect"]["status"] == "complete" and not bool(
+        state["connection"].get("connected", False)
+    ):
+        _set_step(
+            state,
+            "start-connect",
+            "needs_action",
+            "We need to reconnect the companion runtime.",
+            error="The runtime did not finish connecting.",
+            recovery_instructions=[
+                "Choose Retry to reconnect the local runtime.",
+                "Choose Repair if you want Companion OS to verify the local install first.",
+            ],
+            can_retry=True,
+            can_repair=True,
+        )
+
+    _promote_default_messages(state)
+    _sync_progress(state)
+    return state
+
+
+def _normalize_state(raw_state: object) -> InstallerStatus:
+    defaults = create_default_installer_state()
+    if not isinstance(raw_state, dict):
+        return _apply_state_recovery(defaults)
+
+    state = create_default_installer_state()
+    state["environment"] = _normalize_environment(raw_state.get("environment"))
+
+    raw_steps = raw_state.get("steps")
+    if isinstance(raw_steps, dict):
+        state["steps"] = {
+            step_id: _normalize_step(raw_steps.get(step_id), defaults["steps"][step_id])
+            for step_id in STEP_ORDER
+        }
+
+    raw_openclaw = raw_state.get("openclaw")
+    if isinstance(raw_openclaw, dict):
+        state["openclaw"] = {
+            "installed": bool(raw_openclaw.get("installed", False)),
+            "install_path": str(raw_openclaw.get("install_path", str(OPENCLAW_INSTALL_DIR))),
+            "manifest_path": str(
+                raw_openclaw.get("manifest_path", _default_manifest_path())
+            ),
+        }
+
+    raw_ai = raw_state.get("ai")
+    if isinstance(raw_ai, dict):
+        state["ai"] = {
+            "provider": str(raw_ai.get("provider", "local")),
+            "model": str(raw_ai.get("model", get_selected_model())).strip().lower(),
+        }
+
+    raw_connection = raw_state.get("connection")
+    if isinstance(raw_connection, dict):
+        state["connection"] = {
+            "connected": bool(raw_connection.get("connected", False)),
+            "message": str(raw_connection.get("message", "Setup has not completed yet.")),
+        }
+
+    return _apply_state_recovery(state)
+
+
+def _read_installer_state() -> InstallerStatus:
+    _ensure_installer_state_file()
+    with INSTALLER_STATE_FILE.open("r", encoding="utf-8") as file_handle:
+        return _normalize_state(json.load(file_handle))
+
+
+def _write_installer_state(state: InstallerStatus) -> None:
+    normalized_state = _apply_state_recovery(state)
+    _atomic_write_json(INSTALLER_STATE_FILE, normalized_state)
+
+
+def _installer_step_result(
+    message: str,
+    resumed_step: str,
+    *,
+    state: InstallerStatus | None = None,
+) -> InstallerActionResult:
+    current_state = state if state is not None else get_installer_status()
+    return {
+        "message": message,
+        "resumed_step": resumed_step,
+        "step": current_state["steps"][resumed_step],
+        "status": current_state,
+    }
 
 
 def check_environment() -> dict[str, object]:
@@ -430,99 +941,119 @@ def check_environment() -> dict[str, object]:
             state,
             "download",
             "active",
-            "Inspecting the device for local runtime prerequisites.",
+            "Checking your system for the local OpenClaw setup.",
+            increment_attempt=True,
         )
         _write_installer_state(state)
 
-    environment = _collect_environment_result()
-    summary = (
-        "Everything needed for the local-first install is already available."
-        if environment["all_ready"]
-        else (
-            "We found missing items to prepare: "
-            + ", ".join(
-                environment["missing_prerequisites"]
-                + environment["missing_runtime_dependencies"]
-            )
-            + "."
-        )
-    )
-
-    with _installer_lock:
+        environment = _collect_environment_result()
         state = _read_installer_state()
         state["environment"] = environment
-        next_status: StepStatus = "complete" if environment["all_ready"] else "active"
-        step = _set_step(state, "download", next_status, summary, can_retry=True)
+        summary = (
+            "Everything needed for the local-first install is already available."
+            if environment["all_ready"]
+            else (
+                "We still need a few essentials before setup can continue: "
+                + ", ".join(
+                    environment["missing_prerequisites"]
+                    + environment["missing_runtime_dependencies"]
+                )
+                + "."
+            )
+        )
+        next_status: StepStatus = "complete" if environment["all_ready"] else "needs_action"
+        step = _set_step(
+            state,
+            "download",
+            next_status,
+            summary,
+            recovery_instructions=(
+                []
+                if environment["all_ready"]
+                else _download_recovery_plan(
+                    environment["missing_prerequisites"]
+                    + environment["missing_runtime_dependencies"],
+                    package_manager_ready=any(
+                        item.get("can_auto_install", False) and not item["installed"]
+                        for item in environment["checks"]
+                    ),
+                )
+            ),
+            can_retry=not environment["all_ready"],
+            can_repair=not environment["all_ready"],
+        )
         _promote_default_messages(state)
         _write_installer_state(state)
 
     return {"environment": environment, "step": step}
 
 
-def _run_install_command(command: list[str]) -> bool:
-    completed_process = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
+def _current_missing_dependency_statuses(
+    environment: EnvironmentCheckResult,
+) -> list[DependencyStatus]:
+    return [
+        item
+        for item in environment["checks"]
+        if (
+            item["label"] in environment["missing_prerequisites"]
+            or item["label"] in environment["missing_runtime_dependencies"]
+        )
+    ]
+
+
+def _download_failure_response(
+    state: InstallerStatus,
+    *,
+    dependency_label: str,
+    timeout: bool = False,
+    output: str = "",
+) -> dict[str, object]:
+    state["environment"] = _collect_environment_result()
+    remaining = (
+        state["environment"]["missing_prerequisites"]
+        + state["environment"]["missing_runtime_dependencies"]
     )
-    return completed_process.returncode == 0
-
-
-def _winget_install_commands() -> dict[str, list[str]]:
+    issue_message = (
+        f"{dependency_label} is taking longer than expected."
+        if timeout
+        else f"We could not finish installing {dependency_label}."
+    )
+    recovery = _download_recovery_plan(
+        remaining or [dependency_label],
+        package_manager_ready=any(
+            item.get("can_auto_install", False) and not item["installed"]
+            for item in state["environment"]["checks"]
+        ),
+    )
+    if timeout:
+        recovery.insert(
+            0,
+            "The automatic installer stopped because this step took too long. Your progress was saved.",
+        )
+    elif output:
+        recovery.insert(
+            0,
+            "The automatic installer stopped after an error. Your progress was saved so you can retry safely.",
+        )
+    step = _set_step(
+        state,
+        "download",
+        "failed",
+        issue_message,
+        error=issue_message,
+        recovery_instructions=recovery,
+        can_retry=True,
+        can_repair=True,
+    )
+    _write_installer_state(state)
     return {
-        "Node.js": [
-            "winget",
-            "install",
-            "OpenJS.NodeJS.LTS",
-            "--accept-source-agreements",
-            "--accept-package-agreements",
-            "--disable-interactivity",
-        ],
-        "Rust": [
-            "winget",
-            "install",
-            "Rustlang.Rustup",
-            "--accept-source-agreements",
-            "--accept-package-agreements",
-            "--disable-interactivity",
-        ],
-        "Windows C++ / MSVC Toolchain": [
-            "winget",
-            "install",
-            "Microsoft.VisualStudio.2022.BuildTools",
-            "--accept-source-agreements",
-            "--accept-package-agreements",
-            "--disable-interactivity",
-            "--override",
-            "--quiet --norestart --wait --installWhileDownloading --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.22621",
-        ],
-        "Ollama": [
-            "winget",
-            "install",
-            "Ollama.Ollama",
-            "--accept-source-agreements",
-            "--accept-package-agreements",
-            "--disable-interactivity",
-        ],
+        "attempted": True,
+        "installed": [],
+        "remaining": remaining or [dependency_label],
+        "message": issue_message,
+        "environment": state["environment"],
+        "step": step,
     }
-
-
-def _recovery_plan(missing_labels: list[str], *, winget_available: bool) -> list[str]:
-    instructions: list[str] = []
-    if not winget_available:
-        instructions.append(
-            "Automatic setup could not start because Windows App Installer (winget) is not available on this PC."
-        )
-        instructions.append(
-            "Install or enable App Installer from Microsoft, reopen Companion OS, and choose Retry."
-        )
-    for label in missing_labels:
-        instructions.extend(_dependency_guidance(label))
-    instructions.append(
-        "After finishing the missing items, reopen the wizard and choose Retry to continue."
-    )
-    return instructions
 
 
 def download_setup() -> dict[str, object]:
@@ -534,116 +1065,147 @@ def download_setup() -> dict[str, object]:
             state,
             "download",
             "active",
-            "Downloading setup requirements and preparing this PC for OpenClaw.",
+            "Checking your system and preparing the local setup essentials.",
+            increment_attempt=True,
         )
         _write_installer_state(state)
 
-    environment = _collect_environment_result()
-    missing_items = (
-        environment["missing_prerequisites"] + environment["missing_runtime_dependencies"]
-    )
+        environment = _collect_environment_result()
+        state = _read_installer_state()
+        state["environment"] = environment
 
-    if environment["all_ready"]:
-        with _installer_lock:
-            state = _read_installer_state()
-            state["environment"] = environment
+        if environment["all_ready"]:
             step = _set_step(
                 state,
                 "download",
                 "complete",
-                "Download finished. Everything needed for OpenClaw is already in place.",
+                "Your system is ready for OpenClaw.",
             )
             _promote_default_messages(state)
             _write_installer_state(state)
-        return {
-            "attempted": False,
-            "installed": [],
-            "remaining": [],
-            "message": "Download finished. All prerequisites are already installed.",
-            "environment": environment,
-            "step": step,
-        }
+            return {
+                "attempted": False,
+                "installed": [],
+                "remaining": [],
+                "message": "Download finished. All prerequisites are already available.",
+                "environment": environment,
+                "step": step,
+            }
 
-    winget_available = _command_exists("winget")
-    if not winget_available:
-        instructions = _recovery_plan(missing_items, winget_available=False)
-        with _installer_lock:
-            state = _read_installer_state()
-            state["environment"] = environment
-            step = _set_step(
+        installed: list[str] = []
+        missing_statuses = _current_missing_dependency_statuses(environment)
+
+        for dependency in missing_statuses:
+            if dependency["installed"]:
+                continue
+
+            command = _dependency_install_command(dependency["label"])
+            if command is None:
+                recovery = _download_recovery_plan(
+                    environment["missing_prerequisites"]
+                    + environment["missing_runtime_dependencies"],
+                    package_manager_ready=False,
+                )
+                step = _set_step(
+                    state,
+                    "download",
+                    "needs_action",
+                    f"We need to finish setting up {dependency['label']} before we can continue.",
+                    error=f"{dependency['label']} still needs to be installed.",
+                    recovery_instructions=recovery,
+                    can_retry=True,
+                    can_repair=True,
+                )
+                _write_installer_state(state)
+                return {
+                    "attempted": bool(installed),
+                    "installed": installed,
+                    "remaining": environment["missing_prerequisites"]
+                    + environment["missing_runtime_dependencies"],
+                    "message": f"Download paused while {dependency['label']} waits for manual setup.",
+                    "environment": environment,
+                    "step": step,
+                }
+
+            _set_step(
                 state,
                 "download",
-                "needs_action",
-                "Download is paused until one quick manual step is finished.",
-                error="winget is not available on this device.",
-                recovery_instructions=instructions,
-                can_retry=True,
-                can_repair=True,
+                "active",
+                f"Installing {dependency['label']} for this device.",
             )
             _write_installer_state(state)
-        return {
-            "attempted": False,
-            "installed": [],
-            "remaining": missing_items,
-            "message": "Download needs App Installer before automatic setup can continue.",
-            "environment": environment,
-            "step": step,
-        }
-
-    installed: list[str] = []
-    for dependency in missing_items:
-        command = _winget_install_commands().get(dependency)
-        if command and _run_install_command(command):
-            installed.append(dependency)
-
-    refreshed = check_environment()["environment"]
-    remaining_items = (
-        refreshed["missing_prerequisites"] + refreshed["missing_runtime_dependencies"]
-    )
-    if remaining_items:
-        instructions = _recovery_plan(remaining_items, winget_available=True)
-        with _installer_lock:
+            result = _run_install_command(
+                command,
+                timeout_seconds=INSTALL_COMMAND_TIMEOUT_SECONDS,
+            )
             state = _read_installer_state()
-            step = _set_step(
-                state,
-                "download",
-                "needs_action",
-                "Download still needs a little manual help before OpenClaw can install.",
-                error="Automatic setup did not finish every required item.",
-                recovery_instructions=instructions,
-                can_retry=True,
-                can_repair=True,
-            )
-            _write_installer_state(state)
-        return {
-            "attempted": True,
-            "installed": installed,
-            "remaining": remaining_items,
-            "message": "Download finished with follow-up steps required.",
-            "environment": refreshed,
-            "step": step,
-        }
+            if result["timed_out"]:
+                return _download_failure_response(
+                    state,
+                    dependency_label=dependency["label"],
+                    timeout=True,
+                    output=result["output"],
+                )
+            if not result["ok"]:
+                return _download_failure_response(
+                    state,
+                    dependency_label=dependency["label"],
+                    timeout=False,
+                    output=result["output"],
+                )
+            installed.append(dependency["label"])
 
-    with _installer_lock:
+        refreshed_environment = _collect_environment_result()
         state = _read_installer_state()
-        state["environment"] = refreshed
+        state["environment"] = refreshed_environment
+        remaining = (
+            refreshed_environment["missing_prerequisites"]
+            + refreshed_environment["missing_runtime_dependencies"]
+        )
+
+        if remaining:
+            step = _set_step(
+                state,
+                "download",
+                "needs_action",
+                "We finished part of setup, but a few items still need attention.",
+                error="Some required items are still missing.",
+                recovery_instructions=_download_recovery_plan(
+                    remaining,
+                    package_manager_ready=any(
+                        item.get("can_auto_install", False) and not item["installed"]
+                        for item in refreshed_environment["checks"]
+                    ),
+                ),
+                can_retry=True,
+                can_repair=True,
+            )
+            _write_installer_state(state)
+            return {
+                "attempted": True,
+                "installed": installed,
+                "remaining": remaining,
+                "message": "Download paused with follow-up actions required.",
+                "environment": refreshed_environment,
+                "step": step,
+            }
+
         step = _set_step(
             state,
             "download",
             "complete",
-            "Download finished. This PC is ready for OpenClaw.",
+            "Your system is ready for OpenClaw.",
         )
         _promote_default_messages(state)
         _write_installer_state(state)
-
-    return {
-        "attempted": True,
-        "installed": installed,
-        "remaining": [],
-        "message": "Download finished.",
-        "environment": refreshed,
-        "step": step,
-    }
+        return {
+            "attempted": True,
+            "installed": installed,
+            "remaining": [],
+            "message": "Download finished.",
+            "environment": refreshed_environment,
+            "step": step,
+        }
 
 
 def prepare_prerequisites() -> dict[str, object]:
@@ -656,7 +1218,9 @@ def get_installer_status() -> InstallerStatus:
     """Return the persisted installer state."""
 
     with _installer_lock:
-        return _read_installer_state()
+        state = _read_installer_state()
+        _write_installer_state(state)
+        return state
 
 
 def install_openclaw() -> dict[str, object]:
@@ -668,25 +1232,29 @@ def install_openclaw() -> dict[str, object]:
             state,
             "install-openclaw",
             "active",
-            "Installing OpenClaw into the local runtime folder.",
+            "Installing OpenClaw locally.",
+            increment_attempt=True,
         )
         _write_installer_state(state)
 
-    environment = _collect_environment_result()
-    if not environment["all_ready"]:
-        instructions = _recovery_plan(
-            environment["missing_prerequisites"] + environment["missing_runtime_dependencies"],
-            winget_available=_command_exists("winget"),
-        )
-        with _installer_lock:
-            state = _read_installer_state()
-            state["environment"] = environment
+        environment = _collect_environment_result()
+        state = _read_installer_state()
+        state["environment"] = environment
+        if not environment["all_ready"]:
+            instructions = _download_recovery_plan(
+                environment["missing_prerequisites"]
+                + environment["missing_runtime_dependencies"],
+                package_manager_ready=any(
+                    item.get("can_auto_install", False) and not item["installed"]
+                    for item in environment["checks"]
+                ),
+            )
             _set_step(
                 state,
                 "download",
                 "needs_action",
-                "Download must finish before OpenClaw can install.",
-                error="The device still needs setup before installation can continue.",
+                "We still need to finish setting up this device before OpenClaw can install.",
+                error="Some required dependencies are still missing.",
                 recovery_instructions=instructions,
                 can_retry=True,
                 can_repair=True,
@@ -695,32 +1263,32 @@ def install_openclaw() -> dict[str, object]:
                 state,
                 "install-openclaw",
                 "needs_action",
-                "OpenClaw is waiting for the remaining prerequisites.",
+                "OpenClaw is waiting for the remaining setup items.",
                 error="The local runtime environment is not ready yet.",
                 recovery_instructions=instructions,
                 can_retry=True,
                 can_repair=True,
             )
             _write_installer_state(state)
-        raise RuntimeError("OpenClaw cannot install until prerequisites are ready.")
+            raise RuntimeError("OpenClaw cannot install until prerequisites are ready.")
 
-    OPENCLAW_INSTALL_DIR.mkdir(parents=True, exist_ok=True)
-    manifest_path = OPENCLAW_INSTALL_DIR / "openclaw.json"
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "runtime": "openclaw",
-                "source": "local-install-wizard",
-                "installed": True,
-                "provider": "local",
-                "default_model_runtime": "ollama",
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+        OPENCLAW_INSTALL_DIR.mkdir(parents=True, exist_ok=True)
+        manifest_path = OPENCLAW_INSTALL_DIR / "openclaw.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "runtime": "openclaw",
+                    "source": "local-install-wizard",
+                    "installed": True,
+                    "provider": "local",
+                    "default_model_runtime": "ollama",
+                    "state_version": _state_version(),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
 
-    with _installer_lock:
         state = _read_installer_state()
         state["environment"] = environment
         if state["steps"]["download"]["status"] != "complete":
@@ -728,7 +1296,7 @@ def install_openclaw() -> dict[str, object]:
                 state,
                 "download",
                 "complete",
-                "Download finished. This PC is ready for OpenClaw.",
+                "Your system is ready for OpenClaw.",
             )
         state["openclaw"] = {
             "installed": True,
@@ -739,7 +1307,7 @@ def install_openclaw() -> dict[str, object]:
             state,
             "install-openclaw",
             "complete",
-            "OpenClaw is installed locally and ready for model configuration.",
+            "OpenClaw is installed locally and ready for AI setup.",
         )
         _promote_default_messages(state)
         _write_installer_state(state)
@@ -768,36 +1336,34 @@ def configure_ai(model_name: str) -> dict[str, object]:
             state,
             "configure-ai",
             "active",
-            "Saving the default local, open-source model.",
+            "Saving your default local model.",
+            increment_attempt=True,
         )
         _write_installer_state(state)
 
-    if normalized_model_name not in SUPPORTED_LOCAL_MODELS:
-        with _installer_lock:
-            state = _read_installer_state()
+        if normalized_model_name not in SUPPORTED_LOCAL_MODELS:
             _set_step(
                 state,
                 "configure-ai",
                 "failed",
-                "The selected model is not supported in the MVP installer.",
-                error=f"Unsupported local model: {normalized_model_name}",
+                "That model is not available in this setup yet.",
+                error="The selected model is not supported in the MVP installer.",
                 recovery_instructions=[
-                    "Choose one of the supported local, open-source models listed in the installer.",
+                    "Choose one of the supported local models listed in the installer.",
                 ],
                 can_retry=True,
+                can_repair=True,
             )
             _write_installer_state(state)
-        raise ValueError(f"Unsupported local model: {normalized_model_name}")
+            raise ValueError(f"Unsupported local model: {normalized_model_name}")
 
-    with _installer_lock:
-        state = _read_installer_state()
         persisted_model = set_selected_model(normalized_model_name)
-        state["ai"] = {"provider": "local", "model": normalized_model_name}
+        state["ai"] = {"provider": "local", "model": persisted_model}
         step = _set_step(
             state,
             "configure-ai",
             "complete",
-            f"{persisted_model} is now the default local model.",
+            f"{persisted_model} is ready as your default local model.",
         )
         _write_installer_state(state)
 
@@ -819,22 +1385,24 @@ def start_and_connect() -> dict[str, object]:
             "start-connect",
             "active",
             "Starting the local runtime and connecting the companion.",
+            increment_attempt=True,
         )
         _write_installer_state(state)
 
-    with _installer_lock:
         state = _read_installer_state()
-        if not bool(state["openclaw"]["installed"]):
+        install_healthy, install_issue = _openclaw_install_health(state)
+        if not install_healthy:
             _set_step(
                 state,
                 "start-connect",
                 "failed",
-                "OpenClaw still needs to be installed before the companion can connect.",
-                error="OpenClaw must be installed before starting.",
+                "We need to repair the local OpenClaw install before the companion can connect.",
+                error=install_issue,
                 recovery_instructions=[
-                    "Finish the Install OpenClaw step, then choose Retry.",
+                    "Choose Repair and Companion OS will rebuild the local OpenClaw files.",
                 ],
                 can_retry=True,
+                can_repair=True,
             )
             _write_installer_state(state)
             raise RuntimeError("OpenClaw must be installed before starting.")
@@ -845,18 +1413,43 @@ def start_and_connect() -> dict[str, object]:
                 state,
                 "start-connect",
                 "failed",
-                "A supported local model must be selected before the companion can connect.",
+                "Choose a supported local model before the companion can connect.",
                 error="A supported local model must be configured before starting.",
                 recovery_instructions=[
                     "Finish Configure AI with one of the supported local models, then choose Retry.",
                 ],
                 can_retry=True,
+                can_repair=True,
             )
             _write_installer_state(state)
             raise RuntimeError(
                 "A supported local model must be configured before starting."
             )
 
+        environment = _collect_environment_result()
+        if not environment["all_ready"]:
+            _set_step(
+                state,
+                "start-connect",
+                "needs_action",
+                "We still need to finish setting up this device before the companion can start.",
+                error="Some required dependencies are still missing.",
+                recovery_instructions=_download_recovery_plan(
+                    environment["missing_prerequisites"]
+                    + environment["missing_runtime_dependencies"],
+                    package_manager_ready=any(
+                        item.get("can_auto_install", False) and not item["installed"]
+                        for item in environment["checks"]
+                    ),
+                ),
+                can_retry=True,
+                can_repair=True,
+            )
+            state["environment"] = environment
+            _write_installer_state(state)
+            raise RuntimeError("OpenClaw must be installed before starting.")
+
+        state["environment"] = environment
         state["connection"] = {
             "connected": True,
             "message": "Companion OS is running on the local OpenClaw runtime.",
@@ -865,7 +1458,7 @@ def start_and_connect() -> dict[str, object]:
             state,
             "start-connect",
             "complete",
-            "The companion is connected and ready in the desktop shell.",
+            "The companion is connected and ready.",
         )
         _write_installer_state(state)
 
@@ -874,3 +1467,89 @@ def start_and_connect() -> dict[str, object]:
         "message": "Companion runtime is ready. Start & Connect completed.",
         "step": step,
     }
+
+
+def repair_installation() -> InstallerActionResult:
+    """Repair the current incomplete installer step and resume from there."""
+
+    with _installer_lock:
+        state = _read_installer_state()
+        target_step_id = next(
+            (
+                step_id
+                for step_id in STEP_ORDER
+                if state["steps"][step_id]["status"] in {"failed", "needs_action"}
+            ),
+            None,
+        )
+        if target_step_id is None:
+            target_step_id = next(
+                (step_id for step_id in STEP_ORDER if state["steps"][step_id]["status"] != "complete"),
+                "start-connect",
+            )
+
+    if target_step_id == "download":
+        result = download_setup()
+        status = get_installer_status()
+        return _installer_step_result(
+            result["message"],
+            "download",
+            state=status,
+        )
+
+    if target_step_id == "install-openclaw":
+        shutil.rmtree(OPENCLAW_INSTALL_DIR, ignore_errors=True)
+        with _installer_lock:
+            state = _read_installer_state()
+            state["openclaw"] = {
+                "installed": False,
+                "install_path": str(OPENCLAW_INSTALL_DIR),
+                "manifest_path": _default_manifest_path(),
+            }
+            _reset_steps_from(state, "install-openclaw")
+            if state["steps"]["download"]["status"] != "complete":
+                _set_step(
+                    state,
+                    "download",
+                    "needs_action",
+                    "We still need to finish preparing this device before OpenClaw can install.",
+                    error="Some required dependencies are still missing.",
+                    recovery_instructions=_download_recovery_plan(
+                        state["environment"]["missing_prerequisites"]
+                        + state["environment"]["missing_runtime_dependencies"],
+                        package_manager_ready=any(
+                            item.get("can_auto_install", False) and not item["installed"]
+                            for item in state["environment"]["checks"]
+                        ),
+                    ),
+                    can_retry=True,
+                    can_repair=True,
+                )
+            _write_installer_state(state)
+        result = install_openclaw()
+        status = get_installer_status()
+        return _installer_step_result(
+            result["message"],
+            "install-openclaw",
+            state=status,
+        )
+
+    if target_step_id == "configure-ai":
+        selected_model = str(get_installer_status()["ai"]["model"]).strip().lower()
+        if selected_model not in SUPPORTED_LOCAL_MODELS:
+            selected_model = RECOMMENDED_LOCAL_MODEL
+        result = configure_ai(selected_model)
+        status = get_installer_status()
+        return _installer_step_result(
+            result["message"],
+            "configure-ai",
+            state=status,
+        )
+
+    result = start_and_connect()
+    status = get_installer_status()
+    return _installer_step_result(
+        result["message"],
+        "start-connect",
+        state=status,
+    )

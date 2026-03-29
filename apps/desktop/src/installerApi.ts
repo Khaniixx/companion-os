@@ -18,6 +18,8 @@ export type DependencyStatus = {
   installed: boolean;
   version: string | null;
   guidance: string[];
+  approx_size_mb: number | null;
+  can_auto_install: boolean;
 };
 
 export type InstallerStep = {
@@ -30,12 +32,15 @@ export type InstallerStep = {
   recovery_instructions: string[];
   can_retry: boolean;
   can_repair: boolean;
+  updated_at: string;
+  attempt_count: number;
 };
 
 export type InstallerStatus = {
   current_step: string;
   completed: boolean;
   environment: {
+    platform: string;
     checks: DependencyStatus[];
     node_installed: boolean;
     rust_installed: boolean;
@@ -94,6 +99,13 @@ export type StartConnectResult = {
   step: InstallerStep;
 };
 
+export type InstallerActionResult = {
+  message: string;
+  resumed_step: InstallerStepId;
+  step: InstallerStep;
+  status: InstallerStatus;
+};
+
 export type InstallerApi = {
   getInstallerStatus: () => Promise<InstallerStatus>;
   checkEnvironment: () => Promise<EnvironmentCheckResult>;
@@ -103,6 +115,7 @@ export type InstallerApi = {
   getModels: () => Promise<string[]>;
   configureAI: (model: string) => Promise<ConfigureAIResult>;
   startAndConnect: () => Promise<StartConnectResult>;
+  repair: () => Promise<InstallerActionResult>;
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
@@ -147,6 +160,10 @@ export const installerApi: InstallerApi = {
     }),
   startAndConnect: () =>
     request<StartConnectResult>("/api/installer/start-connect", {
+      method: "POST",
+    }),
+  repair: () =>
+    request<InstallerActionResult>("/api/installer/repair", {
       method: "POST",
     }),
 };

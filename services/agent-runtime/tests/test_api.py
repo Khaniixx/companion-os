@@ -47,6 +47,8 @@ def make_dependency(
     category: str,
     installed: bool,
     version: str | None = None,
+    can_auto_install: bool = True,
+    approx_size_mb: int | None = None,
 ) -> installer.DependencyStatus:
     return {
         "id": dependency_id,
@@ -55,6 +57,8 @@ def make_dependency(
         "installed": installed,
         "version": version,
         "guidance": [f"Guidance for {label}"],
+        "approx_size_mb": approx_size_mb,
+        "can_auto_install": can_auto_install,
     }
 
 
@@ -128,7 +132,37 @@ def test_chat_returns_structured_app_route(monkeypatch) -> None:
     }
 
 
-def test_installer_status_returns_default_state() -> None:
+def test_installer_status_returns_default_state(monkeypatch) -> None:
+    monkeypatch.setattr(
+        installer,
+        "_environment_checks",
+        lambda: [
+            make_dependency(
+                dependency_id="nodejs",
+                label="Node.js",
+                category="prerequisite",
+                installed=False,
+            ),
+            make_dependency(
+                dependency_id="rust",
+                label="Rust",
+                category="prerequisite",
+                installed=False,
+            ),
+            make_dependency(
+                dependency_id="msvc",
+                label="Windows C++ / MSVC Toolchain",
+                category="prerequisite",
+                installed=False,
+            ),
+            make_dependency(
+                dependency_id="ollama",
+                label="Ollama",
+                category="runtime",
+                installed=False,
+            ),
+        ],
+    )
     response = client.get("/api/installer/status")
 
     assert response.status_code == 200
@@ -184,12 +218,13 @@ def test_installer_environment_check_returns_structured_dependency_state(
     assert payload["environment"]["missing_prerequisites"] == ["Rust"]
     assert payload["environment"]["missing_runtime_dependencies"] == ["Ollama"]
     assert payload["step"]["id"] == "download"
-    assert payload["step"]["status"] == "active"
+    assert payload["step"]["status"] == "needs_action"
     assert "Rust" in payload["step"]["message"]
 
 
 def test_download_step_completes_and_persists_state(monkeypatch) -> None:
     state = {"ready": False}
+    monkeypatch.setattr(installer.sys, "platform", "win32")
 
     def fake_environment_checks() -> list[installer.DependencyStatus]:
         if state["ready"]:
@@ -256,9 +291,17 @@ def test_download_step_completes_and_persists_state(monkeypatch) -> None:
     def fake_command_exists(command_name: str) -> bool:
         return command_name == "winget"
 
-    def fake_run_install_command(_command: list[str]) -> bool:
+    def fake_run_install_command(
+        _command: list[str], *, timeout_seconds: int
+    ) -> installer.CommandExecutionResult:
+        assert timeout_seconds == installer.INSTALL_COMMAND_TIMEOUT_SECONDS
         state["ready"] = True
-        return True
+        return {
+            "ok": True,
+            "timed_out": False,
+            "returncode": 0,
+            "output": "",
+        }
 
     monkeypatch.setattr(installer, "_environment_checks", fake_environment_checks)
     monkeypatch.setattr(installer, "_command_exists", fake_command_exists)
@@ -280,6 +323,7 @@ def test_download_step_completes_and_persists_state(monkeypatch) -> None:
 def test_download_step_returns_guided_repair_when_winget_is_missing(
     monkeypatch,
 ) -> None:
+    monkeypatch.setattr(installer.sys, "platform", "win32")
     monkeypatch.setattr(
         installer,
         "_environment_checks",
@@ -323,6 +367,69 @@ def test_download_step_returns_guided_repair_when_winget_is_missing(
         "App Installer" in instruction
         for instruction in payload["step"]["recovery_instructions"]
     )
+
+
+def test_download_step_returns_retryable_failure_on_timeout(monkeypatch) -> None:
+    monkeypatch.setattr(
+        installer,
+        "_environment_checks",
+        lambda: [
+            make_dependency(
+                dependency_id="nodejs",
+                label="Node.js",
+                category="prerequisite",
+                installed=True,
+                version="v22.0.0",
+            ),
+            make_dependency(
+                dependency_id="rust",
+                label="Rust",
+                category="prerequisite",
+                installed=False,
+            ),
+            make_dependency(
+                dependency_id="msvc",
+                label="Windows C++ / MSVC Toolchain",
+                category="prerequisite",
+                installed=True,
+                version="Build Tools detected",
+            ),
+            make_dependency(
+                dependency_id="ollama",
+                label="Ollama",
+                category="runtime",
+                installed=True,
+                version="ollama 0.6.0",
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        installer,
+        "_dependency_install_command",
+        lambda _label: ["fake-installer"],
+    )
+
+    def fake_run_install_command(
+        _command: list[str], *, timeout_seconds: int
+    ) -> installer.CommandExecutionResult:
+        assert timeout_seconds == installer.INSTALL_COMMAND_TIMEOUT_SECONDS
+        return {
+            "ok": False,
+            "timed_out": True,
+            "returncode": None,
+            "output": "",
+        }
+
+    monkeypatch.setattr(installer, "_run_install_command", fake_run_install_command)
+
+    response = client.post("/api/installer/download")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["step"]["status"] == "failed"
+    assert payload["step"]["can_retry"] is True
+    assert payload["step"]["can_repair"] is True
+    assert "Rust" in payload["message"]
 
 
 def test_install_openclaw_requires_ready_environment_and_sets_repair_state(
@@ -415,6 +522,60 @@ def test_install_openclaw_creates_local_install_dir(monkeypatch) -> None:
     assert payload["install_path"].endswith("openclaw")
     assert payload["step"]["status"] == "complete"
     assert "OpenClaw prepared locally" in payload["message"]
+
+
+def test_installer_repair_endpoint_resumes_from_corrupted_install(monkeypatch) -> None:
+    monkeypatch.setattr(
+        installer,
+        "_environment_checks",
+        lambda: [
+            make_dependency(
+                dependency_id="nodejs",
+                label="Node.js",
+                category="prerequisite",
+                installed=True,
+                version="v22.0.0",
+            ),
+            make_dependency(
+                dependency_id="rust",
+                label="Rust",
+                category="prerequisite",
+                installed=True,
+                version="rustc 1.85.0",
+            ),
+            make_dependency(
+                dependency_id="msvc",
+                label="Windows C++ / MSVC Toolchain",
+                category="prerequisite",
+                installed=True,
+                version="Build Tools detected",
+            ),
+            make_dependency(
+                dependency_id="ollama",
+                label="Ollama",
+                category="runtime",
+                installed=True,
+                version="ollama 0.6.0",
+            ),
+        ],
+    )
+
+    state = installer.create_default_installer_state()
+    state["steps"]["download"]["status"] = "complete"
+    state["steps"]["install-openclaw"]["status"] = "needs_action"
+    state["steps"]["install-openclaw"]["can_repair"] = True
+    installer.INSTALLER_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    installer.INSTALLER_STATE_FILE.write_text(
+        installer.json.dumps(state, indent=2),
+        encoding="utf-8",
+    )
+
+    response = client.post("/api/installer/repair")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["resumed_step"] == "install-openclaw"
+    assert payload["status"]["steps"]["install-openclaw"]["status"] == "complete"
 
 
 def test_configure_ai_persists_local_model() -> None:

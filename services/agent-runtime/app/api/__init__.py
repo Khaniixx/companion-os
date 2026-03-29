@@ -18,6 +18,7 @@ from app.installer import (
     get_supported_models,
     install_openclaw,
     prepare_prerequisites,
+    repair_installation,
     start_and_connect,
 )
 from app.micro_utilities import capture_clipboard_entry, list_micro_utility_state
@@ -601,6 +602,15 @@ class StartConnectResponse(BaseModel):
     step: dict[str, object]
 
 
+class InstallerActionResponse(BaseModel):
+    """Repair or resume result returned to the desktop installer wizard."""
+
+    message: str
+    resumed_step: str
+    step: dict[str, object]
+    status: dict[str, object]
+
+
 def _decode_base64_payload(raw_payload: str, *, label: str) -> bytes:
     try:
         return base64.b64decode(raw_payload, validate=True)
@@ -715,6 +725,16 @@ async def installer_start_connect() -> StartConnectResponse:
 
     try:
         return StartConnectResponse(**start_and_connect())
+    except RuntimeError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post("/installer/repair", response_model=InstallerActionResponse)
+async def installer_repair() -> InstallerActionResponse:
+    """Repair the current incomplete installer step and resume from there."""
+
+    try:
+        return InstallerActionResponse(**repair_installation())
     except RuntimeError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
