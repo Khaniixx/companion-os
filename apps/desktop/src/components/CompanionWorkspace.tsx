@@ -982,7 +982,7 @@ export function CompanionWorkspace() {
       const packName = activePackRef.current?.display_name ?? DEFAULT_COMPANION_NAME;
       await waitForPacing(MIN_THINKING_DELAY_MS);
       appendCompanionMessage(
-        `${packName} is having trouble reaching the local runtime right now. Please try again in a moment.`,
+        `${packName} lost the local thread for a moment. Stay with me and try again in a breath.`,
         false,
       );
     } finally {
@@ -1117,21 +1117,26 @@ export function CompanionWorkspace() {
           : "Checking local model";
   const companionStateSummary =
     companionState === "idle"
-      ? "Calm and ready to stay nearby."
+      ? "Settled nearby and ready for the next small thing."
       : companionState === "listening"
-        ? "Listening for the next thing you need."
+        ? "Listening closely for where to pick the thread back up."
         : companionState === "thinking"
-          ? "Working through the local runtime."
+          ? "Holding the local thread while I work it through."
           : companionState === "talking"
-            ? "Answering in the foreground."
+            ? "Staying with you in the foreground."
             : companionState === "reaction"
-              ? "Reacting to a timer, shortcut, or cue."
-              : "Needs a little help from the local runtime.";
+              ? "Reacting to a timer, shortcut, or small cue."
+              : "I need a little help from the local runtime.";
   const showsStarterWelcome =
     messages.length === 1 &&
     messages[0]?.id === 1 &&
     messages[0]?.sender === "companion" &&
     messages[0]?.text === DEFAULT_STARTER_MESSAGE;
+  const lastCompanionMessage = [...messages]
+    .reverse()
+    .find((message) => message.sender === "companion");
+  const showsFollowUpDesk =
+    !showsStarterWelcome && lastCompanionMessage !== undefined && !isSending;
 
   return (
     <main
@@ -1425,6 +1430,47 @@ export function CompanionWorkspace() {
               </article>
             ))}
           </div>
+
+          {showsFollowUpDesk ? (
+            <article className="follow-up-desk" aria-label="Next with Aster">
+              <div className="follow-up-desk__copy">
+                <span className="eyebrow">Next with {companionTitle}</span>
+                <p>Keep the same thread going, or hand me the next small thing.</p>
+              </div>
+              <div className="follow-up-desk__actions">
+                <button
+                  className="quick-action-button"
+                  disabled={isSending}
+                  type="button"
+                  onClick={() => {
+                    void submitMessage("show my todo list");
+                  }}
+                >
+                  Show my notes
+                </button>
+                <button
+                  className="quick-action-button"
+                  disabled={isSending}
+                  type="button"
+                  onClick={() => {
+                    void submitMessage("set a 5 minute timer");
+                  }}
+                >
+                  Set another timer
+                </button>
+                <button
+                  className="quick-action-button"
+                  disabled={isSending || isLoadingOpenAppPermission}
+                  type="button"
+                  onClick={() => {
+                    void submitMessage("open Spotify");
+                  }}
+                >
+                  Open Spotify
+                </button>
+              </div>
+            </article>
+          ) : null}
 
           <div className="quick-actions">
             <button

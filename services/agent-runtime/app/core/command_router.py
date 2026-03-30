@@ -152,7 +152,7 @@ def route_user_message(message: str) -> RouterResult:
                 route="app-launcher",
                 user_message=normalized_message,
                 assistant_response=(
-                    f'I can open {resolution["display_name"]} as soon as app launches are allowed in Companion OS.'
+                    f'I can open {resolution["display_name"]} as soon as you let me reach apps from this desk.'
                 ),
                 action={
                     "type": "permission_required",
@@ -207,7 +207,7 @@ def route_user_message(message: str) -> RouterResult:
                 route="browser-helper",
                 user_message=normalized_message,
                 assistant_response=(
-                    "I can reach for the browser as soon as browser access is allowed in Companion OS."
+                    "I can reach for the browser as soon as you let me use it from this desk."
                 ),
                 action={
                     "type": "permission_required",

@@ -66,7 +66,7 @@ def test_route_user_message_uses_fuzzy_app_match_for_typos(
 
     assert result.ok is False
     assert result.route == "app-launcher"
-    assert "app launches are allowed" in result.assistant_response
+    assert "let me reach apps from this desk" in result.assistant_response
     assert result.action == {
         "type": "permission_required",
         "permission": "open_app",
@@ -87,7 +87,7 @@ def test_route_user_message_returns_permission_prompt_for_app_launcher(
     assert result.ok is False
     assert result.route == "app-launcher"
     assert result.user_message == "open Spotify"
-    assert "app launches are allowed" in result.assistant_response
+    assert "let me reach apps from this desk" in result.assistant_response
     assert result.action == {
         "type": "permission_required",
         "permission": "open_app",
@@ -107,7 +107,7 @@ def test_route_user_message_returns_browser_permission_prompt(
 
     assert result.ok is False
     assert result.route == "browser-helper"
-    assert "browser access is allowed" in result.assistant_response
+    assert "let me use it from this desk" in result.assistant_response
     assert result.action == {
         "type": "permission_required",
         "permission": "open_url",
@@ -257,6 +257,7 @@ def test_route_user_message_returns_in_character_browser_failure(
     assert result.ok is False
     assert result.route == "browser-helper"
     assert "trouble reaching the browser" in result.assistant_response
+    assert "Stay with me" in result.assistant_response
     assert result.action == {
         "type": "skill_error",
         "error_code": "browser_unavailable",
@@ -281,6 +282,7 @@ def test_route_user_message_returns_in_character_app_failure(
     assert result.ok is False
     assert result.route == "app-launcher"
     assert "trouble opening that app" in result.assistant_response
+    assert "Stay with me" in result.assistant_response
     assert result.action == {
         "type": "skill_error",
         "error_code": "app_launch_failed",
