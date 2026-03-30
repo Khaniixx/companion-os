@@ -9,7 +9,12 @@ describe("CompanionAvatar", () => {
       <CompanionAvatar
         state="idle"
         displayName="Sunrise"
+        iconDataUrl="data:image/png;base64,AAAA"
         avatarConfig={{
+          presentation_mode: "portrait",
+          stage_label: "Pack portrait",
+          accent_color: "#8FAEFF",
+          aura_color: "#8CE6D8",
           idle_animation: "sunrise-idle",
         }}
         voiceConfig={{
@@ -20,19 +25,26 @@ describe("CompanionAvatar", () => {
 
     const avatar = screen.getByLabelText("Sunrise avatar is idle");
     expect(avatar).toHaveAttribute("data-animation", "sunrise-idle");
+    expect(avatar).toHaveAttribute("data-avatar-mode", "portrait");
     expect(avatar).toHaveAttribute("data-idle-loop", "true");
     expect(avatar).toHaveAttribute("data-presence-cue", "Quietly nearby");
+    expect(avatar).toHaveAttribute("data-stage-label", "Pack portrait");
     expect(avatar).toHaveAttribute("data-voice-clip", "sunrise-idle-loop");
     expect(screen.getByText(/sunrise-idle animation/i)).toBeInTheDocument();
     expect(screen.getByText("Quietly nearby")).toBeInTheDocument();
+    expect(screen.getByText("Pack portrait")).toBeInTheDocument();
+    expect(screen.getByText("Portrait-led")).toBeInTheDocument();
   });
 
-  it("exposes the correct talking animation and voice cue", () => {
+  it("marks model-ready packs distinctly while keeping the same state flow", () => {
     render(
       <CompanionAvatar
         state="talking"
         displayName="Bloom"
         avatarConfig={{
+          presentation_mode: "model",
+          stage_label: "Model shell",
+          model_path: "models/bloom.glb",
           talking_animation: "bloom-speak",
           audio_cues: {
             talking: "voice/bloom-talk.ogg",
@@ -46,10 +58,14 @@ describe("CompanionAvatar", () => {
 
     const avatar = screen.getByLabelText("Bloom avatar is talking");
     expect(avatar).toHaveAttribute("data-animation", "bloom-speak");
+    expect(avatar).toHaveAttribute("data-avatar-mode", "model");
     expect(avatar).toHaveAttribute("data-idle-loop", "false");
     expect(avatar).toHaveAttribute("data-presence-cue", "With you now");
     expect(avatar).toHaveAttribute("data-voice-clip", "voice/bloom-talk.ogg");
     expect(screen.getByText(/bloom-speak animation/i)).toBeInTheDocument();
     expect(screen.getByText("With you now")).toBeInTheDocument();
+    expect(screen.getByText("Model shell")).toBeInTheDocument();
+    expect(screen.getByText("Model-ready")).toBeInTheDocument();
+    expect(screen.getByText("model path ready")).toBeInTheDocument();
   });
 });

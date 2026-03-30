@@ -17,6 +17,10 @@ export type PackVoiceConfig = {
 };
 
 export type PackAvatarConfig = {
+  presentation_mode?: "shell" | "portrait" | "model" | null;
+  stage_label?: string | null;
+  accent_color?: string | null;
+  aura_color?: string | null;
   icon_path?: string | null;
   model_path?: string | null;
   idle_animation?: string | null;

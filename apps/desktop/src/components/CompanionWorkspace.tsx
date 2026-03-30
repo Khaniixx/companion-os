@@ -118,6 +118,40 @@ function getAmbientDeskCue(state: CompanionState, companionTitle: string): strin
   return `${companionTitle} needs a breath while the local thread settles.`;
 }
 
+function getAvatarReadiness(activePack: InstalledPack | null): {
+  label: string;
+  detail: string;
+} {
+  const avatarConfig = activePack?.avatar;
+  const presentationMode = avatarConfig?.presentation_mode;
+
+  if (presentationMode === "model" || avatarConfig?.model_path) {
+    return {
+      label: "Model-ready",
+      detail: avatarConfig?.stage_label ?? "Pack is ready for richer avatar rendering.",
+    };
+  }
+
+  if (presentationMode === "portrait" || activePack?.icon_data_url) {
+    return {
+      label: "Pack-styled",
+      detail: avatarConfig?.stage_label ?? "Pack visuals are shaping this shell.",
+    };
+  }
+
+  if (activePack !== null) {
+    return {
+      label: "Styled shell",
+      detail: avatarConfig?.stage_label ?? "Pack metadata is shaping the fallback shell.",
+    };
+  }
+
+  return {
+    label: "Default shell",
+    detail: "Aster is using the built-in fallback shell for now.",
+  };
+}
+
 export function CompanionWorkspace() {
   const [initialSession] = useState(() => loadCompanionSession(starterMessages));
   const [companionState, setCompanionState] = useState<CompanionState>(
@@ -1229,6 +1263,10 @@ export function CompanionWorkspace() {
     () => activePack?.display_name ?? DEFAULT_COMPANION_NAME,
     [activePack],
   );
+  const avatarReadiness = useMemo(
+    () => getAvatarReadiness(activePack),
+    [activePack],
+  );
   const runtimeReadinessLabel = installerCompleted
     ? "Runtime ready"
     : "Runtime needs attention";
@@ -1314,6 +1352,10 @@ export function CompanionWorkspace() {
               <strong>{runtimeReadinessLabel}</strong>
             </div>
             <div className="stage-panel__rail-item">
+              <span className="stage-panel__rail-label">Avatar</span>
+              <strong>{avatarReadiness.label}</strong>
+            </div>
+            <div className="stage-panel__rail-item">
               <span className="stage-panel__rail-label">Voice</span>
               <strong>{voiceReadinessLabel}</strong>
             </div>
@@ -1344,6 +1386,7 @@ export function CompanionWorkspace() {
           state={companionState}
           displayName={companionTitle}
           avatarConfig={activePack?.avatar}
+          iconDataUrl={activePack?.icon_data_url}
           voiceConfig={activePack?.voice}
         />
       </section>
@@ -1397,6 +1440,20 @@ export function CompanionWorkspace() {
                 <p>
                   The active pack keeps this companion&apos;s tone, idle motion, and
                   voice cues consistent after restarts.
+                </p>
+              </article>
+
+              <article className="settings-card">
+                <span className="settings-card__label">Avatar profile</span>
+                <strong>{avatarReadiness.label}</strong>
+                <p>{avatarReadiness.detail}</p>
+                <p>
+                  {activePack?.avatar?.presentation_mode === "model" ||
+                  activePack?.avatar?.model_path
+                    ? "This pack already carries a model path for the next rendering step."
+                    : activePack?.icon_data_url
+                      ? "This pack is already carrying portrait art for the shell."
+                      : "This companion is still using the built-in shell presentation."}
                 </p>
               </article>
 
