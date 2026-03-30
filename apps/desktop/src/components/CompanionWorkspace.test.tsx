@@ -978,14 +978,23 @@ describe("CompanionWorkspace", () => {
 
     render(<CompanionWorkspace />);
 
-    expect(await screen.findByText("Sunrise is here and ready.")).toBeInTheDocument();
     expect(
-      screen.getByText("Start with a small question, ask for something useful, or let Sunrise settle in beside you for a moment."),
+      await screen.findByText("Start small with Sunrise."),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Ask for a quick check-in, open something you use often, or let Sunrise keep a quiet note while you get settled.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Ask a small question")).toBeInTheDocument();
+    expect(screen.getByText("Set a timer or save a note")).toBeInTheDocument();
     expect(screen.getAllByText("Runtime ready").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Sunrise").length).toBeGreaterThan(0);
     expect(
-      screen.getByRole("button", { name: "How can we start?" }),
+      screen.getByRole("button", { name: "Check in with Sunrise" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Set a 5 minute timer" }),
     ).toBeInTheDocument();
   });
 

@@ -57,7 +57,7 @@ type ChatModelStatus = {
 
 const DEFAULT_COMPANION_NAME = "Aster";
 const DEFAULT_STARTER_MESSAGE =
-  "I am here, awake locally, and ready to keep the desk steady with you.";
+  "I'm here, awake locally, and ready to keep the desk steady with you.";
 const starterMessages: CompanionMessage[] = [
   {
     id: 1,
@@ -1150,11 +1150,10 @@ export function CompanionWorkspace() {
       >
         <div className="stage-panel__copy">
           <span className="eyebrow">Companion OS</span>
-          <h1>{companionTitle} stays close.</h1>
+          <h1>{companionTitle} is awake.</h1>
           <p>
-            One local companion, one continuous thread of conversation, and one
-            desk for quiet help, useful actions, and small reactions throughout
-            the day.
+            A calm local companion for check-ins, useful actions, and one
+            continuous thread you can pick up whenever the day gets noisy.
           </p>
           <div className="stage-panel__rail" aria-label="Companion readiness">
             <div className="stage-panel__rail-item">
@@ -1170,7 +1169,15 @@ export function CompanionWorkspace() {
               <strong>{runtimeReadinessLabel}</strong>
             </div>
           </div>
-          <p className="stage-panel__note">{companionStateSummary}</p>
+          <div className="stage-panel__presence" aria-label="Companion qualities">
+            <span>Local-first replies</span>
+            <span>Useful desk actions</span>
+            <span>One steady thread</span>
+          </div>
+          <p className="stage-panel__note">
+            <strong>Right now</strong>
+            <span>{companionStateSummary}</span>
+          </p>
         </div>
         {activeStreamEvent ? (
           <article className="stream-bubble" aria-live="polite">
@@ -1380,7 +1387,7 @@ export function CompanionWorkspace() {
           <div className="conversation-shell__header">
             <div>
               <span className="eyebrow">Recent exchange</span>
-              <h3>{companionTitle} keeps the thread warm</h3>
+              <h3>{companionTitle} keeps the thread steady</h3>
             </div>
             <span className="conversation-shell__status">{companionStateSummary}</span>
           </div>
@@ -1388,11 +1395,16 @@ export function CompanionWorkspace() {
           {showsStarterWelcome ? (
             <article className="welcome-desk" aria-label="First hello">
               <span className="eyebrow">First hello</span>
-              <h4>{companionTitle} is here and ready.</h4>
+              <h4>Start small with {companionTitle}.</h4>
               <p>
-                Start with a small question, ask for something useful, or let
-                {` ${companionTitle}`} settle in beside you for a moment.
+                Ask for a quick check-in, open something you use often, or let
+                {` ${companionTitle}`} keep a quiet note while you get settled.
               </p>
+              <div className="welcome-desk__list" aria-label="Suggested ways to begin">
+                <span>Ask a small question</span>
+                <span>Open something familiar</span>
+                <span>Set a timer or save a note</span>
+              </div>
               <div className="welcome-desk__meta">
                 <span>{selectedModel}</span>
                 <span>{runtimeReadinessLabel}</span>
@@ -1423,7 +1435,17 @@ export function CompanionWorkspace() {
                 void submitMessage("How can we start today?");
               }}
             >
-              How can we start?
+              Check in with {companionTitle}
+            </button>
+            <button
+              className="quick-action-button"
+              disabled={isSending}
+              type="button"
+              onClick={() => {
+                void submitMessage("set a 5 minute timer");
+              }}
+            >
+              Set a 5 minute timer
             </button>
             <button
               className="quick-action-button"
@@ -1435,26 +1457,17 @@ export function CompanionWorkspace() {
             >
               Open Spotify
             </button>
-            <button
-              className="quick-action-button"
-              disabled={isSending || isLoadingOpenUrlPermission}
-              type="button"
-              onClick={() => {
-                void submitMessage("search for Companion OS local setup");
-              }}
-            >
-              Search Companion OS
-            </button>
           </div>
 
           <form className="composer" onSubmit={handleSubmit}>
             <label className="composer__label" htmlFor="chat-input">
-              Write to {companionTitle} and keep the local thread moving.
+              Write to {companionTitle}. The thread stays local and picks up where
+              you left it.
             </label>
             <textarea
               id="chat-input"
               className="composer__input"
-              placeholder={`Ask ${companionTitle} for help, a task, or a small check-in...`}
+              placeholder={`Ask ${companionTitle} for help, a timer, an app, or a small check-in...`}
               rows={4}
               value={draft}
               disabled={isSending}
