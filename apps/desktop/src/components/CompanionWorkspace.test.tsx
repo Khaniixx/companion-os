@@ -106,7 +106,12 @@ function createFetchMock(
     presenceStatus: {
       enabled: boolean;
       click_through_enabled: boolean;
-      anchor: "desktop-right" | "desktop-left" | "workspace";
+      anchor:
+        | "desktop-right"
+        | "desktop-left"
+        | "active-window-right"
+        | "active-window-left"
+        | "workspace";
       state: "workspace" | "pinned" | "click-through";
       message: string;
     };
@@ -323,7 +328,12 @@ function createFetchMock(
           const body = JSON.parse(String(init.body)) as {
             enabled?: boolean;
             click_through_enabled?: boolean;
-            anchor?: "desktop-right" | "desktop-left" | "workspace";
+            anchor?:
+              | "desktop-right"
+              | "desktop-left"
+              | "active-window-right"
+              | "active-window-left"
+              | "workspace";
           };
           presenceStatus = {
             ...presenceStatus,
@@ -344,6 +354,15 @@ function createFetchMock(
             presenceStatus.state = "workspace";
           }
           presenceStatus.message =
+            presenceStatus.state === "click-through" &&
+            (presenceStatus.anchor === "active-window-left" ||
+              presenceStatus.anchor === "active-window-right")
+              ? "Aster is pinned near the active app and currently letting clicks pass through."
+            : presenceStatus.state === "pinned" &&
+                (presenceStatus.anchor === "active-window-left" ||
+                  presenceStatus.anchor === "active-window-right")
+              ? "Aster is pinned near the active app and ready to stay nearby."
+            :
             presenceStatus.state === "click-through"
               ? "Aster is pinned above the desktop and currently letting clicks pass through."
               : presenceStatus.state === "pinned"
@@ -1263,8 +1282,9 @@ describe("CompanionWorkspace", () => {
       expect(screen.getAllByText("Pinned to desktop").length).toBeGreaterThan(0);
     });
     expect(
-      screen.getByText("Aster is pinned above the desktop and ready to stay nearby."),
-    ).toBeInTheDocument();
+      screen.getAllByText("Aster is pinned above the desktop and ready to stay nearby.")
+        .length,
+    ).toBeGreaterThan(0);
 
     await user.click(
       screen.getByRole("checkbox", {
@@ -1282,11 +1302,16 @@ describe("CompanionWorkspace", () => {
 
     await user.selectOptions(
       screen.getByLabelText("Choose desktop presence anchor"),
-      "desktop-left",
+      "active-window-right",
     );
     await waitFor(() => {
-      expect(screen.getByText("Anchor: desktop left")).toBeInTheDocument();
+      expect(screen.getByText("Anchor: right of active app")).toBeInTheDocument();
     });
+    expect(
+      screen.getAllByText(
+        "Aster is pinned near the active app and currently letting clicks pass through.",
+      ).length,
+    ).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "Reset chat history" }));
     expect(

@@ -1,7 +1,12 @@
 export type CompanionWindowPresence = {
   enabled: boolean;
   clickThroughEnabled: boolean;
-  anchor?: "desktop-right" | "desktop-left" | "workspace";
+  anchor?:
+    | "desktop-right"
+    | "desktop-left"
+    | "active-window-right"
+    | "active-window-left"
+    | "workspace";
 };
 
 const DEFAULT_WORKSPACE_WIDTH = 1240;
@@ -19,6 +24,23 @@ type SavedWindowPlacement = {
 
 let savedWorkspacePlacement: SavedWindowPlacement | null = null;
 let affinityWasApplied = false;
+
+type ActiveWindowBounds = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  title: string;
+};
+
+async function loadActiveWindowBounds(): Promise<ActiveWindowBounds | null> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<ActiveWindowBounds | null>("active_window_bounds");
+  } catch {
+    return null;
+  }
+}
 
 export async function applyOverlayWindowState(
   settings: CompanionWindowPresence,
@@ -54,11 +76,42 @@ export async function applyOverlayWindowState(
           PINNED_HEIGHT,
           Math.max(420, workArea.size.height - PINNED_MARGIN * 2),
         );
+        const activeWindowBounds =
+          settings.anchor === "active-window-left" ||
+          settings.anchor === "active-window-right"
+            ? await loadActiveWindowBounds()
+            : null;
+        const resolvedAnchor =
+          settings.anchor === "active-window-left"
+            ? "desktop-left"
+            : settings.anchor === "active-window-right"
+              ? "desktop-right"
+              : settings.anchor;
+        const targetX =
+          activeWindowBounds !== null
+            ? resolvedAnchor === "desktop-left"
+              ? activeWindowBounds.x - width - PINNED_MARGIN
+              : activeWindowBounds.x + activeWindowBounds.width + PINNED_MARGIN
+            : null;
+        const targetY =
+          activeWindowBounds !== null
+            ? activeWindowBounds.y +
+              Math.max(0, Math.round((activeWindowBounds.height - height) / 2))
+            : null;
+        const minX = workArea.position.x + PINNED_MARGIN;
+        const maxX = workArea.position.x + workArea.size.width - width - PINNED_MARGIN;
+        const minY = workArea.position.y + PINNED_MARGIN;
+        const maxY = workArea.position.y + workArea.size.height - height - PINNED_MARGIN;
         const x =
-          settings.anchor === "desktop-left"
-            ? workArea.position.x + PINNED_MARGIN
-            : workArea.position.x + workArea.size.width - width - PINNED_MARGIN;
-        const y = workArea.position.y + Math.max(PINNED_MARGIN, workArea.size.height - height - PINNED_MARGIN);
+          targetX !== null
+            ? Math.max(minX, Math.min(maxX, targetX))
+            : resolvedAnchor === "desktop-left"
+              ? minX
+              : maxX;
+        const y =
+          targetY !== null
+            ? Math.max(minY, Math.min(maxY, targetY))
+            : workArea.position.y + Math.max(PINNED_MARGIN, workArea.size.height - height - PINNED_MARGIN);
 
         await currentWindow.setResizable(false);
         await currentWindow.setSize(new PhysicalSize(width, height));

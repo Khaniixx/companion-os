@@ -70,7 +70,12 @@ type VoiceStatus = {
 type PresenceStatus = {
   enabled: boolean;
   click_through_enabled: boolean;
-  anchor: "desktop-right" | "desktop-left" | "workspace";
+  anchor:
+    | "desktop-right"
+    | "desktop-left"
+    | "active-window-right"
+    | "active-window-left"
+    | "workspace";
   state: "workspace" | "pinned" | "click-through";
   message: string;
 };
@@ -1000,13 +1005,7 @@ export function CompanionWorkspace() {
     try {
       setIsSavingPresence(true);
       const nextPresenceStatus = await persistPresenceSettings(payload);
-      setSettingsNotice(
-        nextPresenceStatus.enabled
-          ? nextPresenceStatus.click_through_enabled
-            ? "Aster is pinned above the desktop and currently letting clicks pass through."
-            : "Aster is pinned above the desktop and staying nearby."
-          : "Aster is staying in the normal workspace.",
-      );
+      setSettingsNotice(nextPresenceStatus.message);
     } catch (error) {
       const detail =
         error instanceof Error ? error.message : "Unknown presence settings error";
@@ -1429,6 +1428,10 @@ export function CompanionWorkspace() {
   const presenceAnchorLabel =
     presenceStatus?.anchor === "desktop-left"
       ? "desktop left"
+      : presenceStatus?.anchor === "active-window-left"
+        ? "left of active app"
+        : presenceStatus?.anchor === "active-window-right"
+          ? "right of active app"
       : presenceStatus?.anchor === "desktop-right"
         ? "desktop right"
         : "workspace";
@@ -1740,6 +1743,8 @@ export function CompanionWorkspace() {
                   >
                     <option value="desktop-right">Desktop right</option>
                     <option value="desktop-left">Desktop left</option>
+                    <option value="active-window-right">Right of active app</option>
+                    <option value="active-window-left">Left of active app</option>
                     <option value="workspace">Workspace only</option>
                   </select>
                 </label>

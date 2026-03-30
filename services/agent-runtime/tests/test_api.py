@@ -1025,6 +1025,26 @@ def test_presence_preferences_workspace_anchor_is_not_pinned() -> None:
     }
 
 
+def test_presence_preferences_active_window_anchor_mentions_active_app() -> None:
+    update_response = client.put(
+        "/api/preferences/presence",
+        json={
+            "enabled": True,
+            "click_through_enabled": False,
+            "anchor": "active-window-right",
+        },
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json() == {
+        "enabled": True,
+        "click_through_enabled": False,
+        "anchor": "active-window-right",
+        "state": "pinned",
+        "message": "Aster is pinned near the active app and ready to stay nearby.",
+    }
+
+
 def test_update_open_url_permission_persists_value(
     temp_state_files: Path,
 ) -> None:

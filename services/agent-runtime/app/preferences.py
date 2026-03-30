@@ -83,7 +83,13 @@ def _read_preferences() -> dict[str, object]:
         summary_frequency_messages = 25
 
     anchor = str(presence_preferences.get("anchor", "desktop-right")).strip().lower()
-    if anchor not in {"desktop-right", "desktop-left", "workspace"}:
+    if anchor not in {
+        "desktop-right",
+        "desktop-left",
+        "active-window-right",
+        "active-window-left",
+        "workspace",
+    }:
         anchor = "desktop-right"
 
     presence_enabled = bool(presence_preferences.get("enabled", False))
@@ -286,7 +292,13 @@ def update_presence_settings(
 ) -> dict[str, object]:
     """Persist desktop presence preferences for the companion."""
 
-    allowed_anchors = {"desktop-right", "desktop-left", "workspace"}
+    allowed_anchors = {
+        "desktop-right",
+        "desktop-left",
+        "active-window-right",
+        "active-window-left",
+        "workspace",
+    }
     normalized_anchor = None if anchor is None else anchor.strip().lower()
     if normalized_anchor is not None and normalized_anchor not in allowed_anchors:
         raise ValueError(f"Unsupported presence anchor: {normalized_anchor}")

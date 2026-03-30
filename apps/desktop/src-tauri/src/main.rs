@@ -10,12 +10,28 @@ use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::Duration;
 
+use serde::Serialize;
 use tauri::Manager;
+#[cfg(target_os = "windows")]
+use windows::Win32::Foundation::RECT;
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetForegroundWindow, GetWindowRect, GetWindowTextLengthW, GetWindowTextW, IsWindowVisible,
+};
 
 const RUNTIME_HOST: &str = "127.0.0.1";
 const RUNTIME_PORT: u16 = 8000;
 const RUNTIME_BOOT_WAIT_ATTEMPTS: usize = 40;
 const RUNTIME_BOOT_WAIT_MS: u64 = 250;
+
+#[derive(Serialize)]
+struct ActiveWindowBounds {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    title: String,
+}
 
 fn runtime_socket_addr() -> SocketAddr {
     SocketAddr::from(([127, 0, 0, 1], RUNTIME_PORT))
@@ -141,12 +157,53 @@ fn spawn_runtime(app: &tauri::App) -> Result<(), String> {
     Err("The local runtime did not start in time.".to_string())
 }
 
+#[tauri::command]
+fn active_window_bounds() -> Option<ActiveWindowBounds> {
+    #[cfg(target_os = "windows")]
+    {
+        let hwnd = unsafe { GetForegroundWindow() };
+        if hwnd.is_invalid() || !unsafe { IsWindowVisible(hwnd).as_bool() } {
+            return None;
+        }
+
+        let mut rect = RECT::default();
+        if unsafe { GetWindowRect(hwnd, &mut rect) }.is_err() {
+            return None;
+        }
+
+        let width = rect.right - rect.left;
+        let height = rect.bottom - rect.top;
+        if width <= 0 || height <= 0 {
+            return None;
+        }
+
+        let title_len = unsafe { GetWindowTextLengthW(hwnd) };
+        let mut title_buffer = vec![0u16; title_len as usize + 1];
+        let copied = unsafe { GetWindowTextW(hwnd, &mut title_buffer) };
+        let title = String::from_utf16_lossy(&title_buffer[..copied as usize]);
+
+        return Some(ActiveWindowBounds {
+            x: rect.left,
+            y: rect.top,
+            width,
+            height,
+            title,
+        });
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
             spawn_runtime(app).map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![active_window_bounds])
         .run(tauri::generate_context!())
         .expect("error while running Companion OS desktop");
 }

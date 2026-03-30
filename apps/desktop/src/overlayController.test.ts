@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const currentMonitorMock = vi.fn();
+const invokeMock = vi.fn();
 const currentWindowMock = {
   setAlwaysOnTop: vi.fn(),
   setDecorations: vi.fn(),
@@ -17,6 +18,10 @@ const currentWindowMock = {
 vi.mock("@tauri-apps/api/window", () => ({
   currentMonitor: currentMonitorMock,
   getCurrentWindow: () => currentWindowMock,
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: invokeMock,
 }));
 
 class MockPhysicalSize {
@@ -60,6 +65,7 @@ describe("applyOverlayWindowState", () => {
     });
     currentWindowMock.outerSize.mockResolvedValue({ width: 1240, height: 820 });
     currentWindowMock.outerPosition.mockResolvedValue({ x: 160, y: 120 });
+    invokeMock.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -122,6 +128,28 @@ describe("applyOverlayWindowState", () => {
       expect.objectContaining({ x: 160, y: 120 }),
     );
     expect(currentWindowMock.setAlwaysOnTop).toHaveBeenCalledWith(false);
+  });
+
+  it("pins beside the active window when an active-app anchor is selected", async () => {
+    const { applyOverlayWindowState } = await import("./overlayController");
+    invokeMock.mockResolvedValue({
+      x: 600,
+      y: 120,
+      width: 900,
+      height: 820,
+      title: "Editor",
+    });
+
+    await applyOverlayWindowState({
+      enabled: true,
+      clickThroughEnabled: false,
+      anchor: "active-window-right",
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("active_window_bounds");
+    expect(currentWindowMock.setPosition).toHaveBeenCalledWith(
+      expect.objectContaining({ x: 1456, y: 150 }),
+    );
   });
 
   it("keeps stream overlays from triggering desktop affinity placement", async () => {
