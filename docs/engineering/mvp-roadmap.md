@@ -183,6 +183,10 @@ Acceptance criteria:
 Goal:
 Make the desktop shell feel like the beginning of a real embodied companion.
 
+Detailed execution plan:
+
+- [Milestone 3 Embodiment Plan](./milestone-3-embodiment-plan.md)
+
 Acceptance criteria:
 
 - visible companion presence feels polished enough for normal users

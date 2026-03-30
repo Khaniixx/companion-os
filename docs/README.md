@@ -20,6 +20,9 @@ core product rule: one persistent companion, multiple states, no separate modes.
 - [MVP Roadmap](./engineering/mvp-roadmap.md)
   This is the current source of truth for product priority, release scope, and
   milestone order.
+- [Milestone 3 Embodiment Plan](./engineering/milestone-3-embodiment-plan.md)
+  This is the execution plan for voice, avatar, desktop presence, and window
+  attachment work after Milestone 2.
 
 ## Testing Expectations
 
