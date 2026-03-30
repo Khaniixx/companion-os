@@ -361,19 +361,19 @@ function createFetchMock(
             presenceStatus.state === "click-through" &&
             (presenceStatus.anchor === "active-window-top-left" ||
               presenceStatus.anchor === "active-window-top-right")
-              ? "Aster is perched on the active app and currently letting clicks pass through."
+              ? "Aster is perched on the active app and following along while letting clicks pass through."
               : presenceStatus.state === "click-through" &&
                   (presenceStatus.anchor === "active-window-left" ||
                     presenceStatus.anchor === "active-window-right")
-                ? "Aster is pinned near the active app and currently letting clicks pass through."
+                ? "Aster is following the active app and currently letting clicks pass through."
                 : presenceStatus.state === "pinned" &&
                     (presenceStatus.anchor === "active-window-top-left" ||
                       presenceStatus.anchor === "active-window-top-right")
-                  ? "Aster is perched on the active app and ready to stay nearby."
+                  ? "Aster is perched on the active app and ready to follow along."
                   : presenceStatus.state === "pinned" &&
                       (presenceStatus.anchor === "active-window-left" ||
                         presenceStatus.anchor === "active-window-right")
-                    ? "Aster is pinned near the active app and ready to stay nearby."
+                    ? "Aster is following the active app and ready to stay nearby."
                     : presenceStatus.state === "click-through"
                       ? "Aster is pinned above the desktop and currently letting clicks pass through."
                       : presenceStatus.state === "pinned"
@@ -1335,13 +1335,13 @@ describe("CompanionWorkspace", () => {
     });
     expect(
       screen.getAllByText(
-        "Aster is pinned near the active app and currently letting clicks pass through.",
+        "Aster is following the active app and currently letting clicks pass through.",
       ).length,
     ).toBeGreaterThan(0);
     expect(screen.getAllByText("Attached right of active app").length).toBeGreaterThan(0);
     expect(
       screen.getAllByText(
-        "Sunrise stays tucked to the right side of the active app when desktop presence is pinned.",
+        "Sunrise stays tucked to the right side of the active app and follows it as focus shifts.",
       ).length,
     ).toBeGreaterThan(0);
 
@@ -1354,7 +1354,7 @@ describe("CompanionWorkspace", () => {
     });
     expect(
       screen.getAllByText(
-        "Aster is perched on the active app and currently letting clicks pass through.",
+        "Aster is perched on the active app and following along while letting clicks pass through.",
       ).length,
     ).toBeGreaterThan(0);
 
@@ -1381,7 +1381,7 @@ describe("CompanionWorkspace", () => {
         click_through_enabled: false,
         anchor: "active-window-left",
         state: "pinned",
-        message: "Aster is pinned near the active app and ready to stay nearby.",
+        message: "Aster is following the active app and ready to stay nearby.",
       },
     });
 
@@ -1391,7 +1391,7 @@ describe("CompanionWorkspace", () => {
     expect(screen.getAllByText("Attached left of active app").length).toBeGreaterThan(0);
     expect(
       screen.getAllByText(
-        "Sunrise stays tucked to the left side of the active app when desktop presence is pinned.",
+        "Sunrise stays tucked to the left side of the active app and follows it as focus shifts.",
       ).length,
     ).toBeGreaterThan(0);
     expect(

@@ -202,16 +202,16 @@ function getPresenceAttachmentDetail(
     return `${companionTitle} stays in the main workspace until you pin desktop presence.`;
   }
   if (presenceStatus?.anchor === "active-window-top-left") {
-    return `${companionTitle} perches on the top-left edge of the active app when desktop presence is pinned.`;
+    return `${companionTitle} perches on the top-left edge of the active app and follows it as focus shifts.`;
   }
   if (presenceStatus?.anchor === "active-window-top-right") {
-    return `${companionTitle} perches on the top-right edge of the active app when desktop presence is pinned.`;
+    return `${companionTitle} perches on the top-right edge of the active app and follows it as focus shifts.`;
   }
   if (presenceStatus?.anchor === "active-window-left") {
-    return `${companionTitle} stays tucked to the left side of the active app when desktop presence is pinned.`;
+    return `${companionTitle} stays tucked to the left side of the active app and follows it as focus shifts.`;
   }
   if (presenceStatus?.anchor === "active-window-right") {
-    return `${companionTitle} stays tucked to the right side of the active app when desktop presence is pinned.`;
+    return `${companionTitle} stays tucked to the right side of the active app and follows it as focus shifts.`;
   }
   if (presenceStatus?.anchor === "desktop-left") {
     return `${companionTitle} keeps a steady place on the left desktop edge while pinned.`;

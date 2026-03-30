@@ -1041,7 +1041,7 @@ def test_presence_preferences_active_window_anchor_mentions_active_app() -> None
         "click_through_enabled": False,
         "anchor": "active-window-right",
         "state": "pinned",
-        "message": "Aster is pinned near the active app and ready to stay nearby.",
+        "message": "Aster is following the active app and ready to stay nearby.",
     }
 
 
@@ -1061,7 +1061,7 @@ def test_presence_preferences_top_window_anchor_mentions_perched_state() -> None
         "click_through_enabled": False,
         "anchor": "active-window-top-right",
         "state": "pinned",
-        "message": "Aster is perched on the active app and ready to stay nearby.",
+        "message": "Aster is perched on the active app and ready to follow along.",
     }
 
 

@@ -53,6 +53,7 @@ describe("applyOverlayWindowState", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    vi.useRealTimers();
     currentMonitorMock.mockResolvedValue({
       name: "Primary",
       size: { width: 1920, height: 1080 },
@@ -68,7 +69,9 @@ describe("applyOverlayWindowState", () => {
     invokeMock.mockResolvedValue(null);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    const { resetOverlayWindowTrackingForTests } = await import("./overlayController");
+    resetOverlayWindowTrackingForTests();
     vi.clearAllMocks();
   });
 
@@ -175,6 +178,44 @@ describe("applyOverlayWindowState", () => {
     expect(currentWindowMock.setPosition).toHaveBeenCalledWith(
       expect.objectContaining({ x: 1200, y: 24 }),
     );
+  });
+
+  it("keeps following the active window while an active-app anchor stays pinned", async () => {
+    vi.useFakeTimers();
+    const { applyOverlayWindowState, resetOverlayWindowTrackingForTests } =
+      await import("./overlayController");
+    invokeMock
+      .mockResolvedValueOnce({
+        x: 600,
+        y: 120,
+        width: 900,
+        height: 820,
+        title: "Editor",
+      })
+      .mockResolvedValueOnce({
+        x: 720,
+        y: 200,
+        width: 880,
+        height: 780,
+        title: "Browser",
+      });
+
+    await applyOverlayWindowState({
+      enabled: true,
+      clickThroughEnabled: false,
+      anchor: "active-window-right",
+    });
+
+    currentWindowMock.setPosition.mockClear();
+
+    await vi.advanceTimersByTimeAsync(900);
+
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(currentWindowMock.setPosition).toHaveBeenCalledWith(
+      expect.objectContaining({ x: 1456, y: 210 }),
+    );
+
+    resetOverlayWindowTrackingForTests();
   });
 
   it("keeps stream overlays from triggering desktop affinity placement", async () => {
