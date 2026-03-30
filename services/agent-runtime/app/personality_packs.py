@@ -519,11 +519,11 @@ def _pack_dir_for_id(pack_id: str) -> Path:
     normalized_pack_id = pack_id.strip().lower()
     if not PACK_ID_PATTERN.fullmatch(normalized_pack_id):
         raise ValueError(f"Invalid pack id: {pack_id}")
-    return _resolve_within(PACKS_DIR, PACKS_DIR / normalized_pack_id)
+    return PACKS_DIR / normalized_pack_id
 
 
 def _manifest_path_for_pack_dir(pack_dir: Path) -> Path:
-    return _resolve_within(pack_dir, pack_dir / "pack.json")
+    return pack_dir / "pack.json"
 
 
 def _asset_path_for_pack_dir(pack_dir: Path, asset_path: str) -> Path:
@@ -543,7 +543,7 @@ def _write_install_metadata(pack_dir: Path, *, source: str, archive_name: str) -
 
 
 def _read_install_metadata(pack_dir: Path) -> PackInstallMetadata | None:
-    metadata_path = _resolve_within(pack_dir, _metadata_path(pack_dir))
+    metadata_path = _metadata_path(pack_dir)
     if not metadata_path.exists():
         return None
     try:
