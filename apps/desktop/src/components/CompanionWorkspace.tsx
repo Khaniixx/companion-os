@@ -165,6 +165,49 @@ function getAvatarReadiness(activePack: InstalledPack | null): {
   };
 }
 
+function getPresenceAttachmentLabel(
+  presenceStatus: PresenceStatus | null,
+): string {
+  if (!presenceStatus?.enabled || presenceStatus.state === "workspace") {
+    return "Resting in workspace";
+  }
+  if (presenceStatus?.anchor === "active-window-left") {
+    return "Attached left of active app";
+  }
+  if (presenceStatus?.anchor === "active-window-right") {
+    return "Attached right of active app";
+  }
+  if (presenceStatus?.anchor === "desktop-left") {
+    return "Docked to desktop left";
+  }
+  if (presenceStatus?.anchor === "desktop-right") {
+    return "Docked to desktop right";
+  }
+  return "Resting in workspace";
+}
+
+function getPresenceAttachmentDetail(
+  presenceStatus: PresenceStatus | null,
+  companionTitle: string,
+): string {
+  if (!presenceStatus?.enabled || presenceStatus.state === "workspace") {
+    return `${companionTitle} stays in the main workspace until you pin desktop presence.`;
+  }
+  if (presenceStatus?.anchor === "active-window-left") {
+    return `${companionTitle} stays tucked to the left side of the active app when desktop presence is pinned.`;
+  }
+  if (presenceStatus?.anchor === "active-window-right") {
+    return `${companionTitle} stays tucked to the right side of the active app when desktop presence is pinned.`;
+  }
+  if (presenceStatus?.anchor === "desktop-left") {
+    return `${companionTitle} keeps a steady place on the left desktop edge while pinned.`;
+  }
+  if (presenceStatus?.anchor === "desktop-right") {
+    return `${companionTitle} keeps a steady place on the right desktop edge while pinned.`;
+  }
+  return `${companionTitle} stays in the main workspace until you pin desktop presence.`;
+}
+
 export function CompanionWorkspace() {
   const [initialSession] = useState(() => loadCompanionSession(starterMessages));
   const [companionState, setCompanionState] = useState<CompanionState>(
@@ -1434,7 +1477,12 @@ export function CompanionWorkspace() {
           ? "right of active app"
       : presenceStatus?.anchor === "desktop-right"
         ? "desktop right"
-        : "workspace";
+      : "workspace";
+  const presenceAttachmentLabel = getPresenceAttachmentLabel(presenceStatus);
+  const presenceAttachmentDetail = getPresenceAttachmentDetail(
+    presenceStatus,
+    companionTitle,
+  );
   const companionStateSummary =
     companionState === "idle"
       ? "Settled nearby and ready for the next small thing."
@@ -1512,6 +1560,10 @@ export function CompanionWorkspace() {
             <span>Useful desk actions</span>
             <span>One steady thread</span>
           </div>
+          <div className="stage-panel__attachment" aria-label="Presence attachment">
+            <strong>{presenceAttachmentLabel}</strong>
+            <span>{presenceAttachmentDetail}</span>
+          </div>
           <p className="stage-panel__note">
             <strong>Right now</strong>
             <span>{companionStateSummary}</span>
@@ -1534,6 +1586,8 @@ export function CompanionWorkspace() {
           displayName={companionTitle}
           avatarConfig={activePack?.avatar}
           iconDataUrl={activePack?.icon_data_url}
+          presenceAnchor={presenceStatus?.anchor}
+          presencePinned={desktopPresencePinned}
           voiceConfig={activePack?.voice}
         />
       </section>
@@ -1686,6 +1740,7 @@ export function CompanionWorkspace() {
                     "Checking whether Aster is staying in the workspace or pinned above the desktop."}
                 </p>
                 <p>Anchor: {presenceAnchorLabel}</p>
+                <p>{presenceAttachmentDetail}</p>
                 <label className="settings-toggle">
                   <input
                     checked={presenceStatus?.enabled ?? false}

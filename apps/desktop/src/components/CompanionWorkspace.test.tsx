@@ -1119,6 +1119,12 @@ describe("CompanionWorkspace", () => {
     expect(screen.getAllByText("Workspace only").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Sunrise").length).toBeGreaterThan(0);
     expect(screen.getByText("Pack portrait")).toBeInTheDocument();
+    expect(screen.getAllByText("Resting in workspace").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(
+        "Sunrise stays in the main workspace until you pin desktop presence.",
+      ).length,
+    ).toBeGreaterThan(0);
     expect(
       screen.getByText("The desk is quiet. Sunrise is nearby and ready when you are."),
     ).toBeInTheDocument();
@@ -1258,6 +1264,11 @@ describe("CompanionWorkspace", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByText("Anchor: desktop right")).toBeInTheDocument();
+    expect(
+      screen.getAllByText(
+        "Sunrise stays in the main workspace until you pin desktop presence.",
+      ).length,
+    ).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "Reset permissions" }));
     await waitFor(() => {
@@ -1283,6 +1294,10 @@ describe("CompanionWorkspace", () => {
     });
     expect(
       screen.getAllByText("Aster is pinned above the desktop and ready to stay nearby.")
+        .length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("Sunrise keeps a steady place on the right desktop edge while pinned.")
         .length,
     ).toBeGreaterThan(0);
 
@@ -1312,6 +1327,12 @@ describe("CompanionWorkspace", () => {
         "Aster is pinned near the active app and currently letting clicks pass through.",
       ).length,
     ).toBeGreaterThan(0);
+    expect(screen.getAllByText("Attached right of active app").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(
+        "Sunrise stays tucked to the right side of the active app when desktop presence is pinned.",
+      ).length,
+    ).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "Reset chat history" }));
     expect(
@@ -1327,6 +1348,31 @@ describe("CompanionWorkspace", () => {
         screen.getByText("I refreshed OpenClaw and reconnected the local runtime."),
       ).toBeInTheDocument();
     });
+  });
+
+  it("renders attachment cues when the companion starts pinned to the active app", async () => {
+    createFetchMock({
+      presenceStatus: {
+        enabled: true,
+        click_through_enabled: false,
+        anchor: "active-window-left",
+        state: "pinned",
+        message: "Aster is pinned near the active app and ready to stay nearby.",
+      },
+    });
+
+    render(<CompanionWorkspace />);
+
+    expect(await screen.findAllByText("Pinned to desktop")).not.toHaveLength(0);
+    expect(screen.getAllByText("Attached left of active app").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(
+        "Sunrise stays tucked to the left side of the active app when desktop presence is pinned.",
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getByLabelText("Sunrise avatar is idle"),
+    ).toHaveAttribute("data-attachment-mode", "attached");
   });
 
   it("lets the user save a different local model from settings", async () => {

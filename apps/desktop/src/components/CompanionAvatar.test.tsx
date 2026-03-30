@@ -34,6 +34,8 @@ describe("CompanionAvatar", () => {
     expect(screen.getByText("Quietly nearby")).toBeInTheDocument();
     expect(screen.getByText("Pack portrait")).toBeInTheDocument();
     expect(screen.getByText("Portrait-led")).toBeInTheDocument();
+    expect(avatar).toHaveAttribute("data-attachment-mode", "workspace");
+    expect(screen.getByText("Resting in workspace")).toBeInTheDocument();
   });
 
   it("marks model-ready packs distinctly while keeping the same state flow", () => {
@@ -67,5 +69,31 @@ describe("CompanionAvatar", () => {
     expect(screen.getByText("Model shell")).toBeInTheDocument();
     expect(screen.getByText("Model-ready")).toBeInTheDocument();
     expect(screen.getByText("model path ready")).toBeInTheDocument();
+  });
+
+  it("shows attached presence cues when pinned beside the active app", () => {
+    render(
+      <CompanionAvatar
+        state="listening"
+        displayName="Bloom"
+        presenceAnchor="active-window-right"
+        presencePinned
+        avatarConfig={{
+          presentation_mode: "portrait",
+          stage_label: "Window shell",
+        }}
+      />,
+    );
+
+    const avatar = screen.getByLabelText("Bloom avatar is listening");
+    expect(avatar).toHaveAttribute("data-attachment-mode", "attached");
+    expect(avatar).toHaveAttribute(
+      "data-attachment-label",
+      "Attached right of active app",
+    );
+    expect(screen.getByText("Attached right of active app")).toBeInTheDocument();
+    expect(
+      screen.getByText(/keeping close to the active window/i),
+    ).toBeInTheDocument();
   });
 });
