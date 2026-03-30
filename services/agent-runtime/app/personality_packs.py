@@ -505,11 +505,22 @@ def _metadata_path(pack_dir: Path) -> Path:
     return pack_dir / PACK_INSTALL_METADATA_NAME
 
 
+def _resolved_pack_dir_within_root(pack_dir: Path) -> Path:
+    resolved_packs_dir = os.path.realpath(os.fspath(PACKS_DIR))
+    resolved_candidate_dir = os.path.realpath(os.fspath(pack_dir))
+    if (
+        os.path.commonpath([resolved_packs_dir, resolved_candidate_dir])
+        != resolved_packs_dir
+    ):
+        raise ValueError("Resolved pack directory escapes packs root.")
+    return Path(resolved_candidate_dir)
+
+
 def _pack_dir_for_id(pack_id: str) -> Path:
     normalized_pack_id = pack_id.strip().lower()
     if not PACK_ID_PATTERN.fullmatch(normalized_pack_id):
         raise ValueError(f"Invalid pack id: {pack_id}")
-    return PACKS_DIR / normalized_pack_id
+    return _resolved_pack_dir_within_root(PACKS_DIR / normalized_pack_id)
 
 
 def _manifest_path_for_pack_dir(pack_dir: Path) -> Path:
@@ -517,7 +528,7 @@ def _manifest_path_for_pack_dir(pack_dir: Path) -> Path:
 
 
 def _asset_file_map(pack_dir: Path) -> dict[str, Path]:
-    resolved_pack_dir = pack_dir.resolve()
+    resolved_pack_dir = _resolved_pack_dir_within_root(pack_dir)
     asset_paths: dict[str, Path] = {}
     for candidate in resolved_pack_dir.rglob("*"):
         if not candidate.is_file():
