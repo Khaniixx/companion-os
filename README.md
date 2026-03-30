@@ -245,6 +245,11 @@ The streaming layer remains part of the same companion rather than a separate st
 - The runtime can ingest supported YouTube live events from a local relay or polling bridge, including new memberships and Super Chats.
 - Recent stream events are stored locally and surfaced back to the desktop shell so the companion can show quick reaction bubbles without interrupting the main conversation flow.
 
+Current priority note:
+
+- Stream and creator-facing work is intentionally deferred behind Windows release quality, companion identity, embodiment, and reliable core actions.
+- Keep the existing streaming layer stable and secure, but treat it as a later-phase foundation rather than an active MVP focus.
+
 ### Developing Skills
 
 Skills extend the agent’s abilities by wrapping functionality behind a stable interface.  Each skill lives in its own folder under `skills/` and contains a `SKILL.md` manifest specifying metadata (name, description, allowed actions) and any code required to implement it.  Companion OS is compatible with OpenClaw‑style skills, but all community skills must declare permissions and pass a security review before distribution.

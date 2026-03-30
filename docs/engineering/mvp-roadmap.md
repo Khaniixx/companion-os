@@ -81,6 +81,8 @@ What is already in `main`:
 - marketplace foundations
 
 Those foundation systems exist, but they are not equal in priority.
+Stream and creator-facing systems should be treated as later-phase foundations,
+not active near-term product priorities.
 
 ## Release-Ready Definition For This MVP
 
@@ -138,6 +140,7 @@ For the current phase, optimize work in this order:
 Deprioritize unless directly needed:
 
 - stream/creator mode
+- new stream integrations or creator-facing polish
 - marketplace depth
 - large-scale pack ecosystem
 - mobile
@@ -228,6 +231,18 @@ Acceptance criteria:
 - packaging output status is known for experimental targets
 - Linux/macOS remain explicitly marked experimental until proven otherwise
 - upstream `glib` advisory status is documented accurately
+
+## Deferred Foundations
+
+These systems may remain present in the repo, but they should not outrank the
+current Windows-first companion roadmap:
+
+- stream overlays and stream event reactions
+- creator-facing surfaces or co-host behavior
+- broader marketplace depth
+
+Use them as maintained foundations only. Prioritize new work there only when it
+is required for security, stability, or a later explicitly approved milestone.
 
 ## Deployment Plan
 

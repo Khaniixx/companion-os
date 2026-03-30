@@ -39,3 +39,7 @@ core product rule: one persistent companion, multiple states, no separate modes.
 - Progress indicators should remain explicit during onboarding and repair.
 - Personality packs, memory controls, utilities, streaming, and marketplace
   browsing should all remain part of one continuous companion experience.
+- Streaming and creator-facing systems remain lower-priority foundations for the
+  current phase. Keep them stable and secure, but do not let them outrank
+  Windows release quality, companion identity, embodiment, or reliable core
+  actions.
