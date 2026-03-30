@@ -575,11 +575,12 @@ def _read_install_metadata(pack_dir: Path) -> PackInstallMetadata | None:
         return None
 
 
-def _icon_data_url(pack_dir: Path, manifest: PackManifest) -> str | None:
+def _icon_data_url(manifest: PackManifest) -> str | None:
     icon_path = manifest.personality.avatar.icon_path
     if icon_path is None:
         return None
 
+    pack_dir = _pack_dir_for_id(manifest.id)
     resolved_icon_path = _asset_path_for_pack_dir(pack_dir, icon_path)
     if not resolved_icon_path.exists() or not resolved_icon_path.is_file():
         return None
@@ -599,7 +600,8 @@ def _icon_data_url(pack_dir: Path, manifest: PackManifest) -> str | None:
     return f"data:{mime_type};base64,{encoded_icon}"
 
 
-def _summary_from_manifest(pack_dir: Path, manifest: PackManifest) -> InstalledPackSummary:
+def _summary_from_manifest(manifest: PackManifest) -> InstalledPackSummary:
+    pack_dir = _pack_dir_for_id(manifest.id)
     metadata = _read_install_metadata(pack_dir)
     return InstalledPackSummary(
         id=manifest.id,
@@ -612,7 +614,7 @@ def _summary_from_manifest(pack_dir: Path, manifest: PackManifest) -> InstalledP
         required_capabilities=manifest.capabilities.required,
         optional_capabilities=manifest.capabilities.optional,
         active=manifest.id == get_active_pack_id(),
-        icon_data_url=_icon_data_url(pack_dir, manifest),
+        icon_data_url=_icon_data_url(manifest),
         installed_at=metadata.installed_at if metadata is not None else None,
         system_prompt=manifest.personality.system_prompt,
         style_rules=list(manifest.personality.style_rules),
@@ -676,7 +678,7 @@ def _install_from_directory(
     if get_active_pack_id() is None:
         set_active_pack_id(manifest.id)
 
-    return _summary_from_manifest(destination_dir, manifest)
+    return _summary_from_manifest(manifest)
 
 
 def get_pack_manifest_schema() -> dict[str, object]:
@@ -706,7 +708,7 @@ def list_installed_packs() -> dict[str, object]:
                 )
             except ValidationError:
                 continue
-            summaries.append(_summary_from_manifest(pack_dir, manifest))
+            summaries.append(_summary_from_manifest(manifest))
 
         if active_pack_id is not None and all(summary.id != active_pack_id for summary in summaries):
             set_active_pack_id(None)
@@ -774,7 +776,7 @@ def select_active_pack(pack_id: str) -> dict[str, object]:
 
     return {
         "active_pack_id": normalized_pack_id,
-        "pack": _summary_from_manifest(pack_dir, manifest).model_dump(mode="json"),
+        "pack": _summary_from_manifest(manifest).model_dump(mode="json"),
     }
 
 
