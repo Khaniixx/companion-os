@@ -505,28 +505,50 @@ def _metadata_path(pack_dir: Path) -> Path:
     return pack_dir / PACK_INSTALL_METADATA_NAME
 
 
+def _resolved_pack_dir_within_root(pack_dir: Path) -> Path:
+    resolved_packs_dir = os.path.realpath(os.fspath(PACKS_DIR))
+    resolved_candidate_dir = os.path.realpath(os.fspath(pack_dir))
+    if (
+        os.path.commonpath([resolved_packs_dir, resolved_candidate_dir])
+        != resolved_packs_dir
+    ):
+        raise ValueError("Resolved pack directory escapes packs root.")
+    return Path(resolved_candidate_dir)
+
+
 def _pack_dir_for_id(pack_id: str) -> Path:
     normalized_pack_id = pack_id.strip().lower()
     if not PACK_ID_PATTERN.fullmatch(normalized_pack_id):
         raise ValueError(f"Invalid pack id: {pack_id}")
-    return PACKS_DIR / normalized_pack_id
+    return _resolved_pack_dir_within_root(PACKS_DIR / normalized_pack_id)
 
 
 def _manifest_path_for_pack_dir(pack_dir: Path) -> Path:
     return pack_dir / "pack.json"
 
 
+def _asset_file_map(pack_dir: Path) -> dict[str, Path]:
+    resolved_pack_dir = _resolved_pack_dir_within_root(pack_dir)
+    asset_paths: dict[str, Path] = {}
+    for candidate in resolved_pack_dir.rglob("*"):
+        if not candidate.is_file():
+            continue
+        resolved_candidate = candidate.resolve()
+        if os.path.commonpath(
+            [os.fspath(resolved_pack_dir), os.fspath(resolved_candidate)]
+        ) != os.fspath(resolved_pack_dir):
+            continue
+        relative_candidate = resolved_candidate.relative_to(resolved_pack_dir).as_posix()
+        asset_paths[relative_candidate] = resolved_candidate
+    return asset_paths
+
+
 def _asset_path_for_pack_dir(pack_dir: Path, asset_path: str) -> Path:
     normalized_asset_path = _normalized_relative_path(asset_path)
-    resolved_pack_dir = os.path.realpath(os.fspath(pack_dir))
-    candidate_path = os.path.join(
-        resolved_pack_dir,
-        *PurePosixPath(normalized_asset_path).parts,
-    )
-    resolved_candidate = os.path.realpath(candidate_path)
-    if os.path.commonpath([resolved_pack_dir, resolved_candidate]) != resolved_pack_dir:
-        raise ValueError("Path escapes base directory")
-    return Path(resolved_candidate)
+    try:
+        return _asset_file_map(pack_dir)[normalized_asset_path]
+    except KeyError as error:
+        raise ValueError("Referenced asset was not found in the pack.") from error
 
 
 def _write_install_metadata(pack_dir: Path, *, source: str, archive_name: str) -> None:
@@ -553,11 +575,12 @@ def _read_install_metadata(pack_dir: Path) -> PackInstallMetadata | None:
         return None
 
 
-def _icon_data_url(pack_dir: Path, manifest: PackManifest) -> str | None:
+def _icon_data_url(manifest: PackManifest) -> str | None:
     icon_path = manifest.personality.avatar.icon_path
     if icon_path is None:
         return None
 
+    pack_dir = _pack_dir_for_id(manifest.id)
     resolved_icon_path = _asset_path_for_pack_dir(pack_dir, icon_path)
     if not resolved_icon_path.exists() or not resolved_icon_path.is_file():
         return None
@@ -577,7 +600,8 @@ def _icon_data_url(pack_dir: Path, manifest: PackManifest) -> str | None:
     return f"data:{mime_type};base64,{encoded_icon}"
 
 
-def _summary_from_manifest(pack_dir: Path, manifest: PackManifest) -> InstalledPackSummary:
+def _summary_from_manifest(manifest: PackManifest) -> InstalledPackSummary:
+    pack_dir = _pack_dir_for_id(manifest.id)
     metadata = _read_install_metadata(pack_dir)
     return InstalledPackSummary(
         id=manifest.id,
@@ -590,7 +614,7 @@ def _summary_from_manifest(pack_dir: Path, manifest: PackManifest) -> InstalledP
         required_capabilities=manifest.capabilities.required,
         optional_capabilities=manifest.capabilities.optional,
         active=manifest.id == get_active_pack_id(),
-        icon_data_url=_icon_data_url(pack_dir, manifest),
+        icon_data_url=_icon_data_url(manifest),
         installed_at=metadata.installed_at if metadata is not None else None,
         system_prompt=manifest.personality.system_prompt,
         style_rules=list(manifest.personality.style_rules),
@@ -654,7 +678,7 @@ def _install_from_directory(
     if get_active_pack_id() is None:
         set_active_pack_id(manifest.id)
 
-    return _summary_from_manifest(destination_dir, manifest)
+    return _summary_from_manifest(manifest)
 
 
 def get_pack_manifest_schema() -> dict[str, object]:
@@ -684,7 +708,7 @@ def list_installed_packs() -> dict[str, object]:
                 )
             except ValidationError:
                 continue
-            summaries.append(_summary_from_manifest(pack_dir, manifest))
+            summaries.append(_summary_from_manifest(manifest))
 
         if active_pack_id is not None and all(summary.id != active_pack_id for summary in summaries):
             set_active_pack_id(None)
@@ -752,7 +776,7 @@ def select_active_pack(pack_id: str) -> dict[str, object]:
 
     return {
         "active_pack_id": normalized_pack_id,
-        "pack": _summary_from_manifest(pack_dir, manifest).model_dump(mode="json"),
+        "pack": _summary_from_manifest(manifest).model_dump(mode="json"),
     }
 
 
