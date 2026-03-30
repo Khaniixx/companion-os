@@ -760,18 +760,31 @@ def _presence_settings_payload() -> PresenceSettingsResponse:
     click_through_enabled = pinned_enabled and bool(settings["click_through_enabled"])
     anchor_label = (
         "the active app"
-        if anchor in {"active-window-right", "active-window-left"}
+        if anchor
+        in {
+            "active-window-right",
+            "active-window-left",
+            "active-window-top-right",
+            "active-window-top-left",
+        }
         else "the desktop"
     )
+    perched_enabled = anchor in {"active-window-top-right", "active-window-top-left"}
 
     if pinned_enabled and click_through_enabled:
         state = "click-through"
         message = (
-            f"Aster is pinned near {anchor_label} and currently letting clicks pass through."
+            "Aster is perched on the active app and currently letting clicks pass through."
+            if perched_enabled
+            else f"Aster is pinned near {anchor_label} and currently letting clicks pass through."
         )
     elif pinned_enabled:
         state = "pinned"
-        message = f"Aster is pinned near {anchor_label} and ready to stay nearby."
+        message = (
+            "Aster is perched on the active app and ready to stay nearby."
+            if perched_enabled
+            else f"Aster is pinned near {anchor_label} and ready to stay nearby."
+        )
     else:
         state = "workspace"
         message = "Aster is staying in the normal workspace until you pin the desktop presence."
