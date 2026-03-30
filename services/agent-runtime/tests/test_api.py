@@ -972,6 +972,39 @@ def test_voice_preferences_can_be_muted(temp_state_files: Path) -> None:
     assert '"enabled": false' in temp_state_files.read_text(encoding="utf-8")
 
 
+def test_presence_preferences_default_to_workspace() -> None:
+    response = client.get("/api/preferences/presence")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "enabled": False,
+        "click_through_enabled": False,
+        "anchor": "desktop-right",
+        "state": "workspace",
+        "message": "Aster is staying in the normal workspace until you pin the desktop presence.",
+    }
+
+
+def test_presence_preferences_can_enable_click_through(temp_state_files: Path) -> None:
+    update_response = client.put(
+        "/api/preferences/presence",
+        json={
+            "enabled": True,
+            "click_through_enabled": True,
+            "anchor": "desktop-left",
+        },
+    )
+    read_response = client.get("/api/preferences/presence")
+
+    assert update_response.status_code == 200
+    assert update_response.json()["state"] == "click-through"
+    assert update_response.json()["anchor"] == "desktop-left"
+    assert read_response.json()["click_through_enabled"] is True
+    stored = temp_state_files.read_text(encoding="utf-8")
+    assert '"enabled": true' in stored
+    assert '"click_through_enabled": true' in stored
+
+
 def test_update_open_url_permission_persists_value(
     temp_state_files: Path,
 ) -> None:

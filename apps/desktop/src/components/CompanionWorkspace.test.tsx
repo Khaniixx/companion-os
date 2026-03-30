@@ -103,6 +103,13 @@ function createFetchMock(
       display_name: string;
       message: string;
     };
+    presenceStatus: {
+      enabled: boolean;
+      click_through_enabled: boolean;
+      anchor: "desktop-right" | "desktop-left" | "workspace";
+      state: "workspace" | "pinned" | "click-through";
+      message: string;
+    };
   }>,
 ) {
   let openAppGranted = false;
@@ -244,6 +251,14 @@ function createFetchMock(
       display_name: "Sunrise",
       message: "Sunrise's voice is ready when you want it.",
     };
+  let presenceStatus =
+    options?.presenceStatus ?? {
+      enabled: false,
+      click_through_enabled: false,
+      anchor: "desktop-right" as const,
+      state: "workspace" as const,
+      message: "Aster is staying in the normal workspace until you pin the desktop presence.",
+    };
   utilityState.notes = [...utilityState.todos];
 
   const fetchMock = vi
@@ -300,6 +315,44 @@ function createFetchMock(
 
         return Promise.resolve(
           new Response(JSON.stringify(voiceStatus), { status: 200 }),
+        );
+      }
+
+      if (url.endsWith("/api/preferences/presence")) {
+        if (init?.method === "PUT") {
+          const body = JSON.parse(String(init.body)) as {
+            enabled?: boolean;
+            click_through_enabled?: boolean;
+            anchor?: "desktop-right" | "desktop-left" | "workspace";
+          };
+          presenceStatus = {
+            ...presenceStatus,
+            enabled: body.enabled ?? presenceStatus.enabled,
+            click_through_enabled:
+              body.click_through_enabled ?? presenceStatus.click_through_enabled,
+            anchor: body.anchor ?? presenceStatus.anchor,
+            state:
+              body.enabled === false || (body.enabled === undefined && !presenceStatus.enabled)
+                ? "workspace"
+                : (body.click_through_enabled ??
+                      presenceStatus.click_through_enabled)
+                  ? "click-through"
+                  : "pinned",
+          };
+          if (!presenceStatus.enabled) {
+            presenceStatus.click_through_enabled = false;
+            presenceStatus.state = "workspace";
+          }
+          presenceStatus.message =
+            presenceStatus.state === "click-through"
+              ? "Aster is pinned above the desktop and currently letting clicks pass through."
+              : presenceStatus.state === "pinned"
+                ? "Aster is pinned above the desktop and ready to stay nearby."
+                : "Aster is staying in the normal workspace until you pin the desktop presence.";
+        }
+
+        return Promise.resolve(
+          new Response(JSON.stringify(presenceStatus), { status: 200 }),
         );
       }
 
@@ -1044,6 +1097,7 @@ describe("CompanionWorkspace", () => {
     expect(screen.getAllByText("Runtime ready").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Pack-styled").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Voice ready").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Workspace only").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Sunrise").length).toBeGreaterThan(0);
     expect(screen.getByText("Pack portrait")).toBeInTheDocument();
     expect(
@@ -1173,10 +1227,18 @@ describe("CompanionWorkspace", () => {
     expect(screen.getByText("OpenClaw ready")).toBeInTheDocument();
     expect(screen.getByText("Avatar profile")).toBeInTheDocument();
     expect(screen.getAllByText("Pack-styled").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Workspace only").length).toBeGreaterThan(0);
     expect(
       screen.getByText("This pack is already carrying portrait art for the shell."),
     ).toBeInTheDocument();
     expect(screen.getByText("local / sunrise / warm")).toBeInTheDocument();
+    expect(screen.getByText("Desktop presence")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Aster is staying in the normal workspace until you pin the desktop presence.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Anchor: desktop right")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Reset permissions" }));
     await waitFor(() => {
@@ -1193,6 +1255,38 @@ describe("CompanionWorkspace", () => {
     expect(
       screen.getAllByText("Sunrise's voice is resting until you want it.").length,
     ).toBeGreaterThan(0);
+
+    await user.click(
+      screen.getByRole("checkbox", { name: "Pin Aster above the desktop" }),
+    );
+    await waitFor(() => {
+      expect(screen.getAllByText("Pinned to desktop").length).toBeGreaterThan(0);
+    });
+    expect(
+      screen.getByText("Aster is pinned above the desktop and ready to stay nearby."),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "Let clicks pass through when pinned",
+      }),
+    );
+    await waitFor(() => {
+      expect(screen.getAllByText("Pinned, click-through").length).toBeGreaterThan(0);
+    });
+    expect(
+      screen.getAllByText(
+        "Aster is pinned above the desktop and currently letting clicks pass through.",
+      ).length,
+    ).toBeGreaterThan(0);
+
+    await user.selectOptions(
+      screen.getByLabelText("Choose desktop presence anchor"),
+      "desktop-left",
+    );
+    await waitFor(() => {
+      expect(screen.getByText("Anchor: desktop left")).toBeInTheDocument();
+    });
 
     await user.click(screen.getByRole("button", { name: "Reset chat history" }));
     expect(

@@ -67,6 +67,14 @@ type VoiceStatus = {
   message: string;
 };
 
+type PresenceStatus = {
+  enabled: boolean;
+  click_through_enabled: boolean;
+  anchor: "desktop-right" | "desktop-left" | "workspace";
+  state: "workspace" | "pinned" | "click-through";
+  message: string;
+};
+
 const DEFAULT_COMPANION_NAME = "Aster";
 const DEFAULT_STARTER_MESSAGE =
   "I'm here, awake locally, and ready to keep the desk steady with you.";
@@ -186,6 +194,8 @@ export function CompanionWorkspace() {
   const [isSavingModel, setIsSavingModel] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus | null>(null);
   const [isSavingVoice, setIsSavingVoice] = useState(false);
+  const [presenceStatus, setPresenceStatus] = useState<PresenceStatus | null>(null);
+  const [isSavingPresence, setIsSavingPresence] = useState(false);
   const [installerCompleted, setInstallerCompleted] = useState(false);
   const [activePack, setActivePack] = useState<InstalledPack | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -200,6 +210,16 @@ export function CompanionWorkspace() {
   const seenStreamEventIdsRef = useRef<Set<number>>(new Set());
   const seenUtilityAlertIdsRef = useRef<Set<number>>(new Set());
   const activePackRef = useRef<InstalledPack | null>(null);
+  const overlayActive = Boolean(
+    (presenceStatus?.enabled ?? false) ||
+      (streamState?.settings.overlay_enabled ?? false),
+  );
+  const clickThroughActive = Boolean(
+    !isSettingsOpen &&
+      ((presenceStatus?.enabled && presenceStatus.click_through_enabled) ||
+        (streamState?.settings.overlay_enabled &&
+          streamState.settings.click_through_enabled)),
+  );
   const appendUniqueCompanionMessage = useCallback((text: string): void => {
     setMessages((currentMessages) => {
       if (
@@ -246,6 +266,7 @@ export function CompanionWorkspace() {
           openAppResponse,
           openUrlResponse,
           voiceResponse,
+          presenceResponse,
           installerStatus,
           installerModels,
           packResponse,
@@ -256,6 +277,7 @@ export function CompanionWorkspace() {
           fetch(`${API_BASE_URL}/api/preferences/permissions/open_app`),
           fetch(`${API_BASE_URL}/api/preferences/permissions/open_url`),
           fetch(`${API_BASE_URL}/api/preferences/voice`),
+          fetch(`${API_BASE_URL}/api/preferences/presence`),
           installerApi.getInstallerStatus(),
           installerApi.getModels().catch(() => []),
           packApi.listPacks(),
@@ -268,20 +290,29 @@ export function CompanionWorkspace() {
           !openAppResponse.ok ||
           !openUrlResponse.ok ||
           !voiceResponse.ok ||
+          !presenceResponse.ok ||
           !modelStatusResponse.ok
         ) {
           throw new Error("Runtime returned an unexpected permissions response");
         }
 
-        const [openAppData, openUrlData, nextVoiceStatus, nextModelStatus] = (await Promise.all([
+        const [
+          openAppData,
+          openUrlData,
+          nextVoiceStatus,
+          nextPresenceStatus,
+          nextModelStatus,
+        ] = (await Promise.all([
           openAppResponse.json(),
           openUrlResponse.json(),
           voiceResponse.json(),
+          presenceResponse.json(),
           modelStatusResponse.json(),
         ])) as [
           PermissionResponse,
           PermissionResponse,
           VoiceStatus,
+          PresenceStatus,
           ChatModelStatus,
         ];
 
@@ -292,6 +323,7 @@ export function CompanionWorkspace() {
         setHasOpenAppPermission(openAppData.granted);
         setHasOpenUrlPermission(openUrlData.granted);
         setVoiceStatus(nextVoiceStatus);
+        setPresenceStatus(nextPresenceStatus);
         setSelectedModel(installerStatus.ai.model);
         setAvailableModels(
           installerModels.length > 0 ? installerModels : [installerStatus.ai.model],
@@ -322,6 +354,7 @@ export function CompanionWorkspace() {
         setStreamState(null);
         setModelStatus(null);
         setVoiceStatus(null);
+        setPresenceStatus(null);
         setActivePack(null);
       } finally {
         if (active) {
@@ -389,15 +422,14 @@ export function CompanionWorkspace() {
   }, [appendUniqueCompanionMessage, isLoadingUtilities]);
 
   useEffect(() => {
-    if (streamState === null) {
-      return;
-    }
-
-    void applyOverlayWindowState(streamState.settings);
-  }, [streamState]);
+    void applyOverlayWindowState({
+      enabled: overlayActive,
+      clickThroughEnabled: clickThroughActive,
+    });
+  }, [clickThroughActive, overlayActive]);
 
   useEffect(() => {
-    if (streamState?.settings.click_through_enabled !== true) {
+    if (!clickThroughActive) {
       return;
     }
 
@@ -406,25 +438,44 @@ export function CompanionWorkspace() {
         return;
       }
 
-      setStreamNotice("Overlay click-through was turned off.");
+      setSettingsNotice("Desktop click-through was turned off.");
       void (async () => {
         try {
-          const settings = await streamApi.updateSettings({
-            click_through_enabled: false,
-          });
-          setStreamState((currentState) =>
-            currentState === null
-              ? {
-                  settings,
-                  recent_events: [],
-                }
-              : {
-                  ...currentState,
-                  settings,
-                },
-          );
+          if (presenceStatus?.enabled && presenceStatus.click_through_enabled) {
+            const response = await fetch(`${API_BASE_URL}/api/preferences/presence`, {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ click_through_enabled: false }),
+            });
+            if (!response.ok) {
+              throw new Error("Presence update failed");
+            }
+            setPresenceStatus((await response.json()) as PresenceStatus);
+          }
+
+          if (
+            streamState?.settings.overlay_enabled &&
+            streamState.settings.click_through_enabled
+          ) {
+            const settings = await streamApi.updateSettings({
+              click_through_enabled: false,
+            });
+            setStreamState((currentState) =>
+              currentState === null
+                ? {
+                    settings,
+                    recent_events: [],
+                  }
+                : {
+                    ...currentState,
+                    settings,
+                  },
+            );
+          }
         } catch {
-          setStreamNotice("I could not turn click-through off yet.");
+          setSettingsNotice("I could not turn desktop click-through off yet.");
         }
       })();
     };
@@ -433,7 +484,12 @@ export function CompanionWorkspace() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [streamState?.settings.click_through_enabled]);
+  }, [
+    clickThroughActive,
+    presenceStatus?.click_through_enabled,
+    presenceStatus?.enabled,
+    streamState,
+  ]);
 
   useEffect(() => {
     if (isLoadingStreamState) {
@@ -721,6 +777,35 @@ export function CompanionWorkspace() {
     return data;
   }, []);
 
+  async function persistPresenceSettings(
+    payload: Partial<{
+      enabled: boolean;
+      click_through_enabled: boolean;
+      anchor: PresenceStatus["anchor"];
+    }>,
+  ): Promise<PresenceStatus> {
+    const response = await fetch(`${API_BASE_URL}/api/preferences/presence`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as
+        | { detail?: string }
+        | null;
+      throw new Error(
+        errorPayload?.detail ?? `Runtime returned ${response.status}`,
+      );
+    }
+
+    const data = (await response.json()) as PresenceStatus;
+    setPresenceStatus(data);
+    return data;
+  }
+
   async function refreshMicroUtilitiesState(): Promise<MicroUtilityState> {
     const state = await microUtilityApi.getState();
     setMicroUtilityState(state);
@@ -733,6 +818,7 @@ export function CompanionWorkspace() {
       openAppResponse,
       openUrlResponse,
       voiceResponse,
+      presenceResponse,
       installerStatus,
       installerModels,
       packResponse,
@@ -743,6 +829,7 @@ export function CompanionWorkspace() {
       fetch(`${API_BASE_URL}/api/preferences/permissions/open_app`),
       fetch(`${API_BASE_URL}/api/preferences/permissions/open_url`),
       fetch(`${API_BASE_URL}/api/preferences/voice`),
+      fetch(`${API_BASE_URL}/api/preferences/presence`),
       installerApi.getInstallerStatus(),
       installerApi.getModels().catch(() => []),
       packApi.listPacks(),
@@ -755,26 +842,36 @@ export function CompanionWorkspace() {
       !openAppResponse.ok ||
       !openUrlResponse.ok ||
       !voiceResponse.ok ||
+      !presenceResponse.ok ||
       !modelStatusResponse.ok
     ) {
       throw new Error("Runtime returned an unexpected settings response");
     }
 
-    const [openAppData, openUrlData, nextVoiceStatus, nextModelStatus] = (await Promise.all([
+    const [
+      openAppData,
+      openUrlData,
+      nextVoiceStatus,
+      nextPresenceStatus,
+      nextModelStatus,
+    ] = (await Promise.all([
       openAppResponse.json(),
       openUrlResponse.json(),
       voiceResponse.json(),
+      presenceResponse.json(),
       modelStatusResponse.json(),
     ])) as [
       PermissionResponse,
       PermissionResponse,
       VoiceStatus,
+      PresenceStatus,
       ChatModelStatus,
     ];
 
     setHasOpenAppPermission(openAppData.granted);
     setHasOpenUrlPermission(openUrlData.granted);
     setVoiceStatus(nextVoiceStatus);
+    setPresenceStatus(nextPresenceStatus);
     setSelectedModel(installerStatus.ai.model);
     setAvailableModels(
       installerModels.length > 0 ? installerModels : [installerStatus.ai.model],
@@ -887,6 +984,32 @@ export function CompanionWorkspace() {
       setSettingsNotice(`I could not save voice settings yet: ${detail}`);
     } finally {
       setIsSavingVoice(false);
+    }
+  }
+
+  async function handleSavePresenceSettings(
+    payload: Partial<{
+      enabled: boolean;
+      click_through_enabled: boolean;
+      anchor: PresenceStatus["anchor"];
+    }>,
+  ): Promise<void> {
+    try {
+      setIsSavingPresence(true);
+      const nextPresenceStatus = await persistPresenceSettings(payload);
+      setSettingsNotice(
+        nextPresenceStatus.enabled
+          ? nextPresenceStatus.click_through_enabled
+            ? "Aster is pinned above the desktop and currently letting clicks pass through."
+            : "Aster is pinned above the desktop and staying nearby."
+          : "Aster is staying in the normal workspace.",
+      );
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown presence settings error";
+      setSettingsNotice(`I could not save desktop presence yet: ${detail}`);
+    } finally {
+      setIsSavingPresence(false);
     }
   }
 
@@ -1292,6 +1415,20 @@ export function CompanionWorkspace() {
       : `${voiceStatus.provider} / ${voiceStatus.voice_id}${
           voiceStatus.style ? ` / ${voiceStatus.style}` : ""
         }`;
+  const presenceReadinessLabel =
+    presenceStatus?.state === "click-through"
+      ? "Pinned, click-through"
+      : presenceStatus?.state === "pinned"
+        ? "Pinned to desktop"
+        : presenceStatus?.state === "workspace"
+          ? "Workspace only"
+          : "Checking presence";
+  const presenceAnchorLabel =
+    presenceStatus?.anchor === "desktop-left"
+      ? "desktop left"
+      : presenceStatus?.anchor === "desktop-right"
+        ? "desktop right"
+        : "workspace";
   const companionStateSummary =
     companionState === "idle"
       ? "Settled nearby and ready for the next small thing."
@@ -1319,14 +1456,14 @@ export function CompanionWorkspace() {
   return (
     <main
       className={`app-shell${
-        streamState?.settings.overlay_enabled && !isSettingsOpen
+        overlayActive && !isSettingsOpen
           ? " app-shell--overlay"
           : ""
       }`}
     >
       <section
         className={`stage-panel${
-          streamState?.settings.overlay_enabled && !isSettingsOpen
+          overlayActive && !isSettingsOpen
             ? " stage-panel--overlay"
             : ""
         }`}
@@ -1358,6 +1495,10 @@ export function CompanionWorkspace() {
             <div className="stage-panel__rail-item">
               <span className="stage-panel__rail-label">Voice</span>
               <strong>{voiceReadinessLabel}</strong>
+            </div>
+            <div className="stage-panel__rail-item">
+              <span className="stage-panel__rail-label">Presence</span>
+              <strong>{presenceReadinessLabel}</strong>
             </div>
           </div>
           <div className="stage-panel__presence" aria-label="Companion qualities">
@@ -1529,6 +1670,59 @@ export function CompanionWorkspace() {
                       ? "Turn voice back on"
                       : "Mute voice for now"}
                 </button>
+              </article>
+
+              <article className="settings-card">
+                <span className="settings-card__label">Desktop presence</span>
+                <strong>{presenceReadinessLabel}</strong>
+                <p>
+                  {presenceStatus?.message ??
+                    "Checking whether Aster is staying in the workspace or pinned above the desktop."}
+                </p>
+                <p>Anchor: {presenceAnchorLabel}</p>
+                <label className="settings-toggle">
+                  <input
+                    checked={presenceStatus?.enabled ?? false}
+                    disabled={isSavingPresence}
+                    type="checkbox"
+                    onChange={(event) => {
+                      void handleSavePresenceSettings({
+                        enabled: event.target.checked,
+                      });
+                    }}
+                  />
+                  <span>Pin Aster above the desktop</span>
+                </label>
+                <label className="settings-toggle">
+                  <input
+                    checked={presenceStatus?.click_through_enabled ?? false}
+                    disabled={isSavingPresence || !(presenceStatus?.enabled ?? false)}
+                    type="checkbox"
+                    onChange={(event) => {
+                      void handleSavePresenceSettings({
+                        click_through_enabled: event.target.checked,
+                      });
+                    }}
+                  />
+                  <span>Let clicks pass through when pinned</span>
+                </label>
+                <label className="settings-select">
+                  <span>Choose desktop presence anchor</span>
+                  <select
+                    aria-label="Choose desktop presence anchor"
+                    disabled={isSavingPresence}
+                    value={presenceStatus?.anchor ?? "desktop-right"}
+                    onChange={(event) => {
+                      void handleSavePresenceSettings({
+                        anchor: event.target.value as PresenceStatus["anchor"],
+                      });
+                    }}
+                  >
+                    <option value="desktop-right">Desktop right</option>
+                    <option value="desktop-left">Desktop left</option>
+                    <option value="workspace">Workspace only</option>
+                  </select>
+                </label>
               </article>
             </div>
 

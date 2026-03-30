@@ -51,9 +51,11 @@ from app.personality_packs import (
 )
 from app.preferences import (
     get_memory_settings,
+    get_presence_settings,
     get_permission,
     get_voice_settings,
     set_permission,
+    update_presence_settings,
     update_voice_settings,
     update_memory_settings,
 )
@@ -335,6 +337,24 @@ class VoiceSettingsUpdateRequest(BaseModel):
     """Partial update payload for persisted voice preferences."""
 
     enabled: bool | None = None
+
+
+class PresenceSettingsResponse(BaseModel):
+    """Persisted desktop presence preferences for the active companion."""
+
+    enabled: bool
+    click_through_enabled: bool
+    anchor: str
+    state: str
+    message: str
+
+
+class PresenceSettingsUpdateRequest(BaseModel):
+    """Partial update payload for persisted desktop presence settings."""
+
+    enabled: bool | None = None
+    click_through_enabled: bool | None = None
+    anchor: str | None = None
 
 
 class MemorySettingsResponse(BaseModel):
@@ -732,6 +752,31 @@ def _voice_settings_payload() -> VoiceSettingsResponse:
     )
 
 
+def _presence_settings_payload() -> PresenceSettingsResponse:
+    settings = get_presence_settings()
+    enabled = bool(settings["enabled"])
+    click_through_enabled = bool(settings["click_through_enabled"])
+    anchor = str(settings["anchor"])
+
+    if enabled and click_through_enabled:
+        state = "click-through"
+        message = "Aster is pinned above the desktop and currently letting clicks pass through."
+    elif enabled:
+        state = "pinned"
+        message = "Aster is pinned above the desktop and ready to stay nearby."
+    else:
+        state = "workspace"
+        message = "Aster is staying in the normal workspace until you pin the desktop presence."
+
+    return PresenceSettingsResponse(
+        enabled=enabled,
+        click_through_enabled=click_through_enabled,
+        anchor=anchor,
+        state=state,
+        message=message,
+    )
+
+
 @router.get("/health")
 async def health_check() -> dict[str, str]:
     """Simple health check endpoint.
@@ -1091,6 +1136,31 @@ async def save_voice_preferences(
 
     update_voice_settings(enabled=request.enabled)
     return _voice_settings_payload()
+
+
+@router.get("/preferences/presence", response_model=PresenceSettingsResponse)
+async def get_presence_preferences() -> PresenceSettingsResponse:
+    """Return persisted desktop presence preferences."""
+
+    return _presence_settings_payload()
+
+
+@router.put("/preferences/presence", response_model=PresenceSettingsResponse)
+async def save_presence_preferences(
+    request: PresenceSettingsUpdateRequest,
+) -> PresenceSettingsResponse:
+    """Persist desktop presence preferences for the active companion."""
+
+    try:
+        update_presence_settings(
+            enabled=request.enabled,
+            click_through_enabled=request.click_through_enabled,
+            anchor=request.anchor,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return _presence_settings_payload()
 
 
 @router.get("/utilities/state", response_model=MicroUtilitiesStateResponse)

@@ -27,6 +27,11 @@ DEFAULT_PREFERENCES: Final[dict[str, object]] = {
     "voice": {
         "enabled": True,
     },
+    "presence": {
+        "enabled": False,
+        "click_through_enabled": False,
+        "anchor": "desktop-right",
+    },
     "memory": {
         "long_term_memory_enabled": True,
         "summary_frequency_messages": 25,
@@ -62,6 +67,7 @@ def _read_preferences() -> dict[str, object]:
     ai_preferences = loaded_preferences.get("ai", {})
     personality_preferences = loaded_preferences.get("personality", {})
     voice_preferences = loaded_preferences.get("voice", {})
+    presence_preferences = loaded_preferences.get("presence", {})
     memory_preferences = loaded_preferences.get("memory", {})
 
     selected_model = str(
@@ -75,6 +81,17 @@ def _read_preferences() -> dict[str, object]:
     )
     if summary_frequency_messages < 1:
         summary_frequency_messages = 25
+
+    anchor = str(presence_preferences.get("anchor", "desktop-right")).strip().lower()
+    if anchor not in {"desktop-right", "desktop-left", "workspace"}:
+        anchor = "desktop-right"
+
+    presence_enabled = bool(presence_preferences.get("enabled", False))
+    click_through_enabled = bool(
+        presence_preferences.get("click_through_enabled", False)
+    )
+    if not presence_enabled:
+        click_through_enabled = False
 
     return {
         "permissions": {
@@ -94,6 +111,11 @@ def _read_preferences() -> dict[str, object]:
         },
         "voice": {
             "enabled": bool(voice_preferences.get("enabled", True)),
+        },
+        "presence": {
+            "enabled": presence_enabled,
+            "click_through_enabled": click_through_enabled,
+            "anchor": anchor,
         },
         "memory": {
             "long_term_memory_enabled": bool(
@@ -229,6 +251,75 @@ def update_voice_settings(*, enabled: bool | None = None) -> dict[str, bool]:
         _write_preferences(preferences)
         return {
             "enabled": bool(voice_preferences.get("enabled", True)),
+        }
+
+
+def get_presence_settings() -> dict[str, object]:
+    """Return persisted desktop presence preferences for the companion."""
+
+    with _preferences_lock:
+        preferences = _read_preferences()
+        presence_preferences = preferences.get("presence", {})
+        if not isinstance(presence_preferences, dict):
+            presence_preferences = {}
+
+        enabled = bool(presence_preferences.get("enabled", False))
+        click_through_enabled = bool(
+            presence_preferences.get("click_through_enabled", False)
+        )
+        if not enabled:
+            click_through_enabled = False
+
+        anchor = str(presence_preferences.get("anchor", "desktop-right"))
+        return {
+            "enabled": enabled,
+            "click_through_enabled": click_through_enabled,
+            "anchor": anchor,
+        }
+
+
+def update_presence_settings(
+    *,
+    enabled: bool | None = None,
+    click_through_enabled: bool | None = None,
+    anchor: str | None = None,
+) -> dict[str, object]:
+    """Persist desktop presence preferences for the companion."""
+
+    allowed_anchors = {"desktop-right", "desktop-left", "workspace"}
+    normalized_anchor = None if anchor is None else anchor.strip().lower()
+    if normalized_anchor is not None and normalized_anchor not in allowed_anchors:
+        raise ValueError(f"Unsupported presence anchor: {normalized_anchor}")
+
+    with _preferences_lock:
+        preferences = _read_preferences()
+        presence_preferences = preferences.get("presence")
+        if not isinstance(presence_preferences, dict):
+            presence_preferences = {}
+            preferences["presence"] = presence_preferences
+
+        if enabled is not None:
+            presence_preferences["enabled"] = enabled
+            if not enabled:
+                presence_preferences["click_through_enabled"] = False
+        if click_through_enabled is not None:
+            current_enabled = bool(presence_preferences.get("enabled", False))
+            presence_preferences["click_through_enabled"] = (
+                click_through_enabled and current_enabled
+            )
+        if normalized_anchor is not None:
+            presence_preferences["anchor"] = normalized_anchor
+
+        _write_preferences(preferences)
+
+        enabled_value = bool(presence_preferences.get("enabled", False))
+        click_value = bool(presence_preferences.get("click_through_enabled", False))
+        if not enabled_value:
+            click_value = False
+        return {
+            "enabled": enabled_value,
+            "click_through_enabled": click_value,
+            "anchor": str(presence_preferences.get("anchor", "desktop-right")),
         }
 
 
