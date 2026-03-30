@@ -196,6 +196,7 @@ def test_generate_companion_reply_returns_loading_message_during_startup(
     assert result.loading is True
     assert result.error_code == "model_loading"
     assert "gathering my local thoughts" in result.message
+    assert "pick the thread back up" in result.message
     assert provider_called["value"] is False
 
 
@@ -225,8 +226,8 @@ def test_generate_companion_reply_returns_fallback_when_provider_errors(
     assert result.loading is False
     assert result.error_code == "model_unavailable"
     assert result.message == (
-        "I am softly losing the thread with my local model for a moment. "
-        "Try me again in a breath."
+        "I am softly losing the local thread for a moment. "
+        "Stay with me and try again in a breath."
     )
 
 

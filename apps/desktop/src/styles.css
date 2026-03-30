@@ -2025,6 +2025,34 @@ textarea {
   font-size: 0.82rem;
 }
 
+.follow-up-desk {
+  display: grid;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(13, 29, 48, 0.9), rgba(9, 20, 35, 0.84)),
+    rgba(11, 24, 41, 0.86);
+  border: 1px solid rgba(153, 182, 220, 0.12);
+}
+
+.follow-up-desk__copy {
+  display: grid;
+  gap: 6px;
+}
+
+.follow-up-desk__copy p {
+  margin: 0;
+  color: rgba(225, 236, 250, 0.76);
+  line-height: 1.5;
+}
+
+.follow-up-desk__actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .utility-panel__header {
   display: flex;
   justify-content: space-between;
@@ -2488,6 +2516,7 @@ textarea {
   .marketplace-card__sections,
   .stream-settings__grid,
   .utility-panel__grid,
+  .follow-up-desk__actions,
   .welcome-desk__list,
   .quick-actions,
   .stage-panel__rail {

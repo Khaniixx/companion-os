@@ -766,7 +766,7 @@ function createFetchMock(
                 route: "companion-chat",
                 user_message: "hello",
                 assistant_response:
-                  "I am softly gathering my local thoughts. Stay with me a moment, then ask again.",
+                  "I am softly gathering my local thoughts. Stay with me a moment and I will pick the thread back up.",
                 action: {
                   type: "chat_reply",
                   provider: "ollama",
@@ -863,7 +863,7 @@ function createFetchMock(
                   route: "app-launcher",
                   user_message: body.message,
                   assistant_response:
-                    "I can open Spotify as soon as app launches are allowed in Companion OS.",
+                    "I can open Spotify as soon as you let me reach apps from this desk.",
                   action: {
                     type: "permission_required",
                     permission: "open_app",
@@ -1013,6 +1013,11 @@ describe("CompanionWorkspace", () => {
       await screen.findByText("I set a 5-minute timer. I will keep it subtle and local."),
     ).toBeInTheDocument();
     expect(await screen.findByText("5-minute timer")).toBeInTheDocument();
+    expect(await screen.findByText("Next with Sunrise")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show my notes" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Set another timer" }),
+    ).toBeInTheDocument();
 
     await waitFor(() => {
       expect(
@@ -1088,7 +1093,7 @@ describe("CompanionWorkspace", () => {
 
     expect(
       await screen.findByText(
-        "I can open Spotify as soon as app launches are allowed in Companion OS.",
+        "I can open Spotify as soon as you let me reach apps from this desk.",
       ),
     ).toBeInTheDocument();
     expect(

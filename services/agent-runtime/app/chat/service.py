@@ -92,7 +92,7 @@ def format_in_character_error(
     if error_code in {"model_not_ready", "model_loading"}:
         return (
             f"I am {speaking_style} gathering my local thoughts. "
-            "Stay with me a moment, then ask again."
+            "Stay with me a moment and I will pick the thread back up."
         )
     if error_code == "model_missing":
         return (
@@ -101,18 +101,18 @@ def format_in_character_error(
         )
     if error_code == "model_unavailable":
         return (
-            f"I am {speaking_style} losing the thread with my local model for a moment. "
-            "Try me again in a breath."
+            f"I am {speaking_style} losing the local thread for a moment. "
+            "Stay with me and try again in a breath."
         )
     if error_code == "browser_unavailable":
         return (
             f"I am {direct_style} having trouble reaching the browser just now. "
-            "Give me a moment and try again."
+            "Stay with me and try again in a moment."
         )
     if error_code == "app_launch_failed":
         return (
             f"I am {direct_style} having trouble opening that app just now. "
-            "Give me a moment and try again."
+            "Stay with me and try again in a moment."
         )
     if error_code == "skill_failed":
         return (
