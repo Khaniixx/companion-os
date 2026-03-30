@@ -19,7 +19,8 @@ It should become a real AI companion platform that combines:
 - OpenClaw-style capabilities
 - DesktopMate-style visible presence
 - Sakura.fm-style personality consistency
-- deep long-term customization without relying on infringing IP
+- deep long-term customization, including local user-imported voice, avatar,
+  and personality packs
 
 The user should feel:
 
@@ -41,6 +42,8 @@ These are non-negotiable for the current phase:
 - personality treated as a core system, not cosmetic decoration
 - permissions, repair paths, and persistence treated as product requirements
 - no dependency on directly shipping copyrighted characters or voices
+- voice, avatar systems, and personality/custom packs treated as base product
+  systems, not premium extras or late add-ons
 
 ## Architecture Summary
 
@@ -194,6 +197,8 @@ Acceptance criteria:
   placeholder
 - desktop presentation supports the product fantasy of an on-screen companion,
   not just a chat window with an avatar
+- voice, avatar, and pack systems are clearly moving toward base-product
+  customization instead of one fixed shell
 - embodiment improvements do not break performance or core flows
 
 ### Milestone 4: Reaction Layer And Liveliness

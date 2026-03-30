@@ -24,6 +24,7 @@ This milestone should materially improve:
 - avatar depth
 - on-screen embodiment
 - overlay and attachment behavior
+- local custom pack readiness for voice, avatar, and personality identity
 - the sense that the companion lives on the desktop, not only in a chat panel
 
 ## Current Starting Point
@@ -53,8 +54,11 @@ What does **not** exist yet in a meaningful Milestone 3 sense:
 
 Milestone 3 should include:
 
-- voice foundation for the default companion path
-- a better avatar system that can grow beyond the current fallback shell
+- voice as a base product system, not an optional add-on
+- an avatar system that can grow beyond the current fallback shell into richer
+  character models
+- local user-imported custom packs as a first-class path for voice, avatar, and
+  personality identity
 - more deliberate desktop embodiment behavior
 - stronger overlay/pinned presence behavior on Windows
 
@@ -97,6 +101,7 @@ Include:
 - connect pack voice metadata to an actual runtime/UI flow
 - establish clear voice-ready, voice-muted, and voice-unavailable states
 - keep voice optional and user-controlled
+- keep the system ready for local user-imported voice packs
 
 Acceptance criteria:
 
@@ -113,9 +118,11 @@ Move from one fallback avatar shell toward a reusable avatar/character layer.
 Include:
 
 - formalize how packs choose avatar presentation
-- support a richer avatar asset path beyond simple icon/config metadata
+- support a richer avatar asset path beyond simple icon/config metadata,
+  including future 3D-ready character presentation
 - keep the current fallback avatar as the safe baseline
 - define how state animations map onto future avatar models
+- make local user-imported character packs part of the intended system design
 
 Acceptance criteria:
 
@@ -220,6 +227,19 @@ Milestone 3 is done when:
 - the desktop presence feels more embodied than “chat window with avatar”
 - Windows users can feel the beginning of hover / attach / on-screen life
   without the product becoming unstable or intrusive
+
+## Product Rule For This Milestone
+
+Milestone 3 should treat these as base product systems:
+
+- voice
+- avatar and character presentation
+- personality pack identity
+- local user-imported custom packs
+
+The shipped defaults should remain stable and maintainable, but the product
+should be built so users can make the companion feel personal through local
+pack imports rather than treating customization as an afterthought.
 
 ## Working Rule
 

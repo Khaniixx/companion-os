@@ -92,6 +92,17 @@ function createFetchMock(
       loaded: boolean;
       message: string;
     };
+    voiceStatus: {
+      enabled: boolean;
+      available: boolean;
+      state: "ready" | "muted" | "unavailable";
+      provider: string;
+      voice_id: string;
+      locale: string | null;
+      style: string | null;
+      display_name: string;
+      message: string;
+    };
   }>,
 ) {
   let openAppGranted = false;
@@ -221,6 +232,18 @@ function createFetchMock(
       loaded: true,
       message: "Your local model is awake and ready.",
     };
+  let voiceStatus =
+    options?.voiceStatus ?? {
+      enabled: true,
+      available: true,
+      state: "ready" as const,
+      provider: "local",
+      voice_id: "sunrise",
+      locale: "en-US",
+      style: "warm",
+      display_name: "Sunrise",
+      message: "Sunrise's voice is ready when you want it.",
+    };
   utilityState.notes = [...utilityState.todos];
 
   const fetchMock = vi
@@ -251,6 +274,32 @@ function createFetchMock(
             JSON.stringify({ permission: "open_url", granted: openUrlGranted }),
             { status: 200 },
           ),
+        );
+      }
+
+      if (url.endsWith("/api/preferences/voice")) {
+        if (init?.method === "PUT") {
+          const body = JSON.parse(String(init.body)) as { enabled?: boolean };
+          voiceStatus = {
+            ...voiceStatus,
+            enabled: body.enabled ?? voiceStatus.enabled,
+            state:
+              body.enabled === false
+                ? "muted"
+                : voiceStatus.available
+                  ? "ready"
+                  : "unavailable",
+            message:
+              body.enabled === false
+                ? `${voiceStatus.display_name}'s voice is resting until you want it.`
+                : voiceStatus.available
+                  ? `${voiceStatus.display_name}'s voice is ready when you want it.`
+                  : `${voiceStatus.display_name} does not have a usable voice profile yet.`,
+          };
+        }
+
+        return Promise.resolve(
+          new Response(JSON.stringify(voiceStatus), { status: 200 }),
         );
       }
 
@@ -989,6 +1038,7 @@ describe("CompanionWorkspace", () => {
     expect(screen.getByText("Ask a small question")).toBeInTheDocument();
     expect(screen.getByText("Set a timer or save a note")).toBeInTheDocument();
     expect(screen.getAllByText("Runtime ready").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Voice ready").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Sunrise").length).toBeGreaterThan(0);
     expect(
       screen.getByText("The desk is quiet. Sunrise is nearby and ready when you are."),
@@ -1115,6 +1165,7 @@ describe("CompanionWorkspace", () => {
     expect(screen.getAllByText("llama3.1:8b-instruct").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Sunrise").length).toBeGreaterThan(0);
     expect(screen.getByText("OpenClaw ready")).toBeInTheDocument();
+    expect(screen.getByText("local / sunrise / warm")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Reset permissions" }));
     await waitFor(() => {
@@ -1123,11 +1174,22 @@ describe("CompanionWorkspace", () => {
       ).toBeInTheDocument();
     });
 
+    await user.click(screen.getByRole("button", { name: "Mute voice for now" }));
+    await waitFor(() => {
+      expect(screen.getByText("Voice is resting for now.")).toBeInTheDocument();
+    });
+    expect(screen.getAllByText("Voice muted").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("Sunrise's voice is resting until you want it.").length,
+    ).toBeGreaterThan(0);
+
     await user.click(screen.getByRole("button", { name: "Reset chat history" }));
     expect(
       screen.getByText("Recent conversation history was cleared on this device."),
     ).toBeInTheDocument();
-    expect(window.localStorage.getItem("companion-os.session")).toBeNull();
+    expect(window.localStorage.getItem("companion-os.session")).toContain(
+      "I'm here, awake locally, and ready to keep the desk steady with you.",
+    );
 
     await user.click(screen.getByRole("button", { name: "Repair OpenClaw" }));
     await waitFor(() => {

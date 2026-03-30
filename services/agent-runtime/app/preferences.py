@@ -24,6 +24,9 @@ DEFAULT_PREFERENCES: Final[dict[str, object]] = {
     "personality": {
         "active_pack_id": None,
     },
+    "voice": {
+        "enabled": True,
+    },
     "memory": {
         "long_term_memory_enabled": True,
         "summary_frequency_messages": 25,
@@ -58,6 +61,7 @@ def _read_preferences() -> dict[str, object]:
     permissions = loaded_preferences.get("permissions", {})
     ai_preferences = loaded_preferences.get("ai", {})
     personality_preferences = loaded_preferences.get("personality", {})
+    voice_preferences = loaded_preferences.get("voice", {})
     memory_preferences = loaded_preferences.get("memory", {})
 
     selected_model = str(
@@ -87,6 +91,9 @@ def _read_preferences() -> dict[str, object]:
                 if personality_preferences.get("active_pack_id") is not None
                 else None
             ),
+        },
+        "voice": {
+            "enabled": bool(voice_preferences.get("enabled", True)),
         },
         "memory": {
             "long_term_memory_enabled": bool(
@@ -190,6 +197,39 @@ def set_active_pack_id(pack_id: str | None) -> str | None:
         personality_preferences["active_pack_id"] = normalized_pack_id
         _write_preferences(preferences)
         return normalized_pack_id
+
+
+def get_voice_settings() -> dict[str, bool]:
+    """Return persisted voice preferences for the active companion."""
+
+    with _preferences_lock:
+        preferences = _read_preferences()
+        voice_preferences = preferences.get("voice", {})
+        if not isinstance(voice_preferences, dict):
+            voice_preferences = {}
+
+        return {
+            "enabled": bool(voice_preferences.get("enabled", True)),
+        }
+
+
+def update_voice_settings(*, enabled: bool | None = None) -> dict[str, bool]:
+    """Persist voice preferences for the active companion."""
+
+    with _preferences_lock:
+        preferences = _read_preferences()
+        voice_preferences = preferences.get("voice")
+        if not isinstance(voice_preferences, dict):
+            voice_preferences = {}
+            preferences["voice"] = voice_preferences
+
+        if enabled is not None:
+            voice_preferences["enabled"] = enabled
+
+        _write_preferences(preferences)
+        return {
+            "enabled": bool(voice_preferences.get("enabled", True)),
+        }
 
 
 def get_memory_settings() -> dict[str, object]:

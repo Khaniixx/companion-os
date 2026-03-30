@@ -42,6 +42,7 @@ from app.marketplace import (
 )
 from app.personality_packs import (
     PACK_ID_PATTERN,
+    get_active_pack_profile,
     get_pack_manifest_schema,
     import_tavern_card,
     install_pack_archive,
@@ -51,7 +52,9 @@ from app.personality_packs import (
 from app.preferences import (
     get_memory_settings,
     get_permission,
+    get_voice_settings,
     set_permission,
+    update_voice_settings,
     update_memory_settings,
 )
 from app.skills.app_launcher import launch_app_skill
@@ -312,6 +315,26 @@ class PermissionUpdateRequest(BaseModel):
     """Request payload for updating persisted permission state."""
 
     granted: bool
+
+
+class VoiceSettingsResponse(BaseModel):
+    """Persisted voice readiness and preference state for the active companion."""
+
+    enabled: bool
+    available: bool
+    state: str
+    provider: str
+    voice_id: str
+    locale: str | None
+    style: str | None
+    display_name: str
+    message: str
+
+
+class VoiceSettingsUpdateRequest(BaseModel):
+    """Partial update payload for persisted voice preferences."""
+
+    enabled: bool | None = None
 
 
 class MemorySettingsResponse(BaseModel):
@@ -666,6 +689,49 @@ def _memory_settings_payload() -> MemorySettingsResponse:
     )
 
 
+def _voice_settings_payload() -> VoiceSettingsResponse:
+    settings = get_voice_settings()
+    active_profile = get_active_pack_profile()
+    voice_metadata = active_profile.get("voice", {})
+    if not isinstance(voice_metadata, dict):
+        voice_metadata = {}
+
+    provider = str(voice_metadata.get("provider", "local")).strip() or "local"
+    voice_id = str(voice_metadata.get("voice_id", "default")).strip() or "default"
+    locale_value = voice_metadata.get("locale")
+    locale = str(locale_value).strip() or None if locale_value is not None else None
+    style_value = voice_metadata.get("style")
+    style = str(style_value).strip() or None if style_value is not None else None
+    display_name = str(
+        active_profile.get("display_name", "Aster")
+    ).strip() or "Aster"
+
+    available = bool(provider and voice_id)
+    enabled = bool(settings["enabled"])
+
+    if not enabled:
+        state = "muted"
+        message = f"{display_name}'s voice is resting until you want it."
+    elif available:
+        state = "ready"
+        message = f"{display_name}'s voice is ready when you want it."
+    else:
+        state = "unavailable"
+        message = f"{display_name} does not have a usable voice profile yet."
+
+    return VoiceSettingsResponse(
+        enabled=enabled,
+        available=available,
+        state=state,
+        provider=provider,
+        voice_id=voice_id,
+        locale=locale,
+        style=style,
+        display_name=display_name,
+        message=message,
+    )
+
+
 @router.get("/health")
 async def health_check() -> dict[str, str]:
     """Simple health check endpoint.
@@ -1008,6 +1074,23 @@ async def update_open_url_permission(
 
     granted = set_permission("open_url", request.granted)
     return PermissionResponse(permission="open_url", granted=granted)
+
+
+@router.get("/preferences/voice", response_model=VoiceSettingsResponse)
+async def get_voice_preferences() -> VoiceSettingsResponse:
+    """Return persisted voice preferences and active pack voice readiness."""
+
+    return _voice_settings_payload()
+
+
+@router.put("/preferences/voice", response_model=VoiceSettingsResponse)
+async def save_voice_preferences(
+    request: VoiceSettingsUpdateRequest,
+) -> VoiceSettingsResponse:
+    """Persist active companion voice preferences."""
+
+    update_voice_settings(enabled=request.enabled)
+    return _voice_settings_payload()
 
 
 @router.get("/utilities/state", response_model=MicroUtilitiesStateResponse)

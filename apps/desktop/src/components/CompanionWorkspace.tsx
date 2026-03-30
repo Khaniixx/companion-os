@@ -55,6 +55,18 @@ type ChatModelStatus = {
   message: string;
 };
 
+type VoiceStatus = {
+  enabled: boolean;
+  available: boolean;
+  state: "ready" | "muted" | "unavailable";
+  provider: string;
+  voice_id: string;
+  locale: string | null;
+  style: string | null;
+  display_name: string;
+  message: string;
+};
+
 const DEFAULT_COMPANION_NAME = "Aster";
 const DEFAULT_STARTER_MESSAGE =
   "I'm here, awake locally, and ready to keep the desk steady with you.";
@@ -138,6 +150,8 @@ export function CompanionWorkspace() {
   ]);
   const [modelStatus, setModelStatus] = useState<ChatModelStatus | null>(null);
   const [isSavingModel, setIsSavingModel] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus | null>(null);
+  const [isSavingVoice, setIsSavingVoice] = useState(false);
   const [installerCompleted, setInstallerCompleted] = useState(false);
   const [activePack, setActivePack] = useState<InstalledPack | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -197,6 +211,7 @@ export function CompanionWorkspace() {
         const [
           openAppResponse,
           openUrlResponse,
+          voiceResponse,
           installerStatus,
           installerModels,
           packResponse,
@@ -206,6 +221,7 @@ export function CompanionWorkspace() {
         ] = await Promise.all([
           fetch(`${API_BASE_URL}/api/preferences/permissions/open_app`),
           fetch(`${API_BASE_URL}/api/preferences/permissions/open_url`),
+          fetch(`${API_BASE_URL}/api/preferences/voice`),
           installerApi.getInstallerStatus(),
           installerApi.getModels().catch(() => []),
           packApi.listPacks(),
@@ -214,15 +230,26 @@ export function CompanionWorkspace() {
           fetch(`${API_BASE_URL}/api/chat/model-status`),
         ]);
 
-        if (!openAppResponse.ok || !openUrlResponse.ok || !modelStatusResponse.ok) {
+        if (
+          !openAppResponse.ok ||
+          !openUrlResponse.ok ||
+          !voiceResponse.ok ||
+          !modelStatusResponse.ok
+        ) {
           throw new Error("Runtime returned an unexpected permissions response");
         }
 
-        const [openAppData, openUrlData, nextModelStatus] = (await Promise.all([
+        const [openAppData, openUrlData, nextVoiceStatus, nextModelStatus] = (await Promise.all([
           openAppResponse.json(),
           openUrlResponse.json(),
+          voiceResponse.json(),
           modelStatusResponse.json(),
-        ])) as [PermissionResponse, PermissionResponse, ChatModelStatus];
+        ])) as [
+          PermissionResponse,
+          PermissionResponse,
+          VoiceStatus,
+          ChatModelStatus,
+        ];
 
         if (!active) {
           return;
@@ -230,6 +257,7 @@ export function CompanionWorkspace() {
 
         setHasOpenAppPermission(openAppData.granted);
         setHasOpenUrlPermission(openUrlData.granted);
+        setVoiceStatus(nextVoiceStatus);
         setSelectedModel(installerStatus.ai.model);
         setAvailableModels(
           installerModels.length > 0 ? installerModels : [installerStatus.ai.model],
@@ -259,6 +287,7 @@ export function CompanionWorkspace() {
         setMicroUtilityState(null);
         setStreamState(null);
         setModelStatus(null);
+        setVoiceStatus(null);
         setActivePack(null);
       } finally {
         if (active) {
@@ -624,6 +653,40 @@ export function CompanionWorkspace() {
     return data.granted;
   }
 
+  async function persistVoiceEnabled(enabled: boolean): Promise<VoiceStatus> {
+    const response = await fetch(`${API_BASE_URL}/api/preferences/voice`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ enabled }),
+    });
+
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as
+        | { detail?: string }
+        | null;
+      throw new Error(
+        errorPayload?.detail ?? `Runtime returned ${response.status}`,
+      );
+    }
+
+    const data = (await response.json()) as VoiceStatus;
+    setVoiceStatus(data);
+    return data;
+  }
+
+  const refreshVoiceStatus = useCallback(async (): Promise<VoiceStatus> => {
+    const response = await fetch(`${API_BASE_URL}/api/preferences/voice`);
+    if (!response.ok) {
+      throw new Error(`Runtime returned ${response.status}`);
+    }
+
+    const data = (await response.json()) as VoiceStatus;
+    setVoiceStatus(data);
+    return data;
+  }, []);
+
   async function refreshMicroUtilitiesState(): Promise<MicroUtilityState> {
     const state = await microUtilityApi.getState();
     setMicroUtilityState(state);
@@ -635,6 +698,7 @@ export function CompanionWorkspace() {
     const [
       openAppResponse,
       openUrlResponse,
+      voiceResponse,
       installerStatus,
       installerModels,
       packResponse,
@@ -644,6 +708,7 @@ export function CompanionWorkspace() {
     ] = await Promise.all([
       fetch(`${API_BASE_URL}/api/preferences/permissions/open_app`),
       fetch(`${API_BASE_URL}/api/preferences/permissions/open_url`),
+      fetch(`${API_BASE_URL}/api/preferences/voice`),
       installerApi.getInstallerStatus(),
       installerApi.getModels().catch(() => []),
       packApi.listPacks(),
@@ -652,18 +717,30 @@ export function CompanionWorkspace() {
       fetch(`${API_BASE_URL}/api/chat/model-status`),
     ]);
 
-    if (!openAppResponse.ok || !openUrlResponse.ok || !modelStatusResponse.ok) {
+    if (
+      !openAppResponse.ok ||
+      !openUrlResponse.ok ||
+      !voiceResponse.ok ||
+      !modelStatusResponse.ok
+    ) {
       throw new Error("Runtime returned an unexpected settings response");
     }
 
-    const [openAppData, openUrlData, nextModelStatus] = (await Promise.all([
+    const [openAppData, openUrlData, nextVoiceStatus, nextModelStatus] = (await Promise.all([
       openAppResponse.json(),
       openUrlResponse.json(),
+      voiceResponse.json(),
       modelStatusResponse.json(),
-    ])) as [PermissionResponse, PermissionResponse, ChatModelStatus];
+    ])) as [
+      PermissionResponse,
+      PermissionResponse,
+      VoiceStatus,
+      ChatModelStatus,
+    ];
 
     setHasOpenAppPermission(openAppData.granted);
     setHasOpenUrlPermission(openUrlData.granted);
+    setVoiceStatus(nextVoiceStatus);
     setSelectedModel(installerStatus.ai.model);
     setAvailableModels(
       installerModels.length > 0 ? installerModels : [installerStatus.ai.model],
@@ -757,6 +834,25 @@ export function CompanionWorkspace() {
       setSettingsNotice(`I could not save that model yet: ${detail}`);
     } finally {
       setIsSavingModel(false);
+    }
+  }
+
+  async function handleToggleVoiceEnabled(enabled: boolean): Promise<void> {
+    try {
+      setIsSavingVoice(true);
+      const nextVoiceStatus = await persistVoiceEnabled(enabled);
+      setSettingsNotice(
+        enabled
+          ? "Voice is ready again for this companion."
+          : "Voice is resting for now.",
+      );
+      appendCompanionMessage(nextVoiceStatus.message, true);
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown voice settings error";
+      setSettingsNotice(`I could not save voice settings yet: ${detail}`);
+    } finally {
+      setIsSavingVoice(false);
     }
   }
 
@@ -1124,8 +1220,9 @@ export function CompanionWorkspace() {
   const handlePacksChanged = useCallback(
     (packs: InstalledPack[], activePackId: string | null) => {
       setActivePack(packs.find((pack) => pack.id === activePackId) ?? null);
+      void refreshVoiceStatus().catch(() => {});
     },
-    [],
+    [refreshVoiceStatus],
   );
 
   const companionTitle = useMemo(
@@ -1142,7 +1239,21 @@ export function CompanionWorkspace() {
         ? "Local model warming"
         : modelStatus?.state === "missing"
           ? "Model needs download"
-          : "Checking local model";
+        : "Checking local model";
+  const voiceReadinessLabel =
+    voiceStatus?.state === "ready"
+      ? "Voice ready"
+      : voiceStatus?.state === "muted"
+        ? "Voice muted"
+        : voiceStatus?.state === "unavailable"
+          ? "Voice unavailable"
+          : "Checking voice";
+  const voiceIdentityLabel =
+    voiceStatus === null
+      ? "Checking active voice profile."
+      : `${voiceStatus.provider} / ${voiceStatus.voice_id}${
+          voiceStatus.style ? ` / ${voiceStatus.style}` : ""
+        }`;
   const companionStateSummary =
     companionState === "idle"
       ? "Settled nearby and ready for the next small thing."
@@ -1201,6 +1312,10 @@ export function CompanionWorkspace() {
             <div className="stage-panel__rail-item">
               <span className="stage-panel__rail-label">Runtime</span>
               <strong>{runtimeReadinessLabel}</strong>
+            </div>
+            <div className="stage-panel__rail-item">
+              <span className="stage-panel__rail-label">Voice</span>
+              <strong>{voiceReadinessLabel}</strong>
             </div>
           </div>
           <div className="stage-panel__presence" aria-label="Companion qualities">
@@ -1337,6 +1452,27 @@ export function CompanionWorkspace() {
                   <strong>{hasOpenUrlPermission ? "Allowed" : "Not allowed"}</strong>
                 </p>
               </article>
+
+              <article className="settings-card">
+                <span className="settings-card__label">Voice</span>
+                <strong>{voiceReadinessLabel}</strong>
+                <p>{voiceStatus?.message ?? "Checking voice readiness for this companion."}</p>
+                <p>{voiceIdentityLabel}</p>
+                <button
+                  className="settings-action-button"
+                  disabled={isSavingVoice}
+                  type="button"
+                  onClick={() => {
+                    void handleToggleVoiceEnabled(!(voiceStatus?.enabled ?? true));
+                  }}
+                >
+                  {isSavingVoice
+                    ? "Saving voice..."
+                    : voiceStatus?.enabled === false
+                      ? "Turn voice back on"
+                      : "Mute voice for now"}
+                </button>
+              </article>
             </div>
 
             <div className="settings-actions">
@@ -1446,6 +1582,7 @@ export function CompanionWorkspace() {
               <div className="welcome-desk__meta">
                 <span>{selectedModel}</span>
                 <span>{runtimeReadinessLabel}</span>
+                <span>{voiceReadinessLabel}</span>
               </div>
             </article>
           ) : null}
