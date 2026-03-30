@@ -111,6 +111,8 @@ function createFetchMock(
         | "desktop-left"
         | "active-window-right"
         | "active-window-left"
+        | "active-window-top-right"
+        | "active-window-top-left"
         | "workspace";
       state: "workspace" | "pinned" | "click-through";
       message: string;
@@ -333,6 +335,8 @@ function createFetchMock(
               | "desktop-left"
               | "active-window-right"
               | "active-window-left"
+              | "active-window-top-right"
+              | "active-window-top-left"
               | "workspace";
           };
           presenceStatus = {
@@ -355,19 +359,26 @@ function createFetchMock(
           }
           presenceStatus.message =
             presenceStatus.state === "click-through" &&
-            (presenceStatus.anchor === "active-window-left" ||
-              presenceStatus.anchor === "active-window-right")
-              ? "Aster is pinned near the active app and currently letting clicks pass through."
-            : presenceStatus.state === "pinned" &&
-                (presenceStatus.anchor === "active-window-left" ||
-                  presenceStatus.anchor === "active-window-right")
-              ? "Aster is pinned near the active app and ready to stay nearby."
-            :
-            presenceStatus.state === "click-through"
-              ? "Aster is pinned above the desktop and currently letting clicks pass through."
-              : presenceStatus.state === "pinned"
-                ? "Aster is pinned above the desktop and ready to stay nearby."
-                : "Aster is staying in the normal workspace until you pin the desktop presence.";
+            (presenceStatus.anchor === "active-window-top-left" ||
+              presenceStatus.anchor === "active-window-top-right")
+              ? "Aster is perched on the active app and currently letting clicks pass through."
+              : presenceStatus.state === "click-through" &&
+                  (presenceStatus.anchor === "active-window-left" ||
+                    presenceStatus.anchor === "active-window-right")
+                ? "Aster is pinned near the active app and currently letting clicks pass through."
+                : presenceStatus.state === "pinned" &&
+                    (presenceStatus.anchor === "active-window-top-left" ||
+                      presenceStatus.anchor === "active-window-top-right")
+                  ? "Aster is perched on the active app and ready to stay nearby."
+                  : presenceStatus.state === "pinned" &&
+                      (presenceStatus.anchor === "active-window-left" ||
+                        presenceStatus.anchor === "active-window-right")
+                    ? "Aster is pinned near the active app and ready to stay nearby."
+                    : presenceStatus.state === "click-through"
+                      ? "Aster is pinned above the desktop and currently letting clicks pass through."
+                      : presenceStatus.state === "pinned"
+                        ? "Aster is pinned above the desktop and ready to stay nearby."
+                        : "Aster is staying in the normal workspace until you pin the desktop presence.";
         }
 
         return Promise.resolve(
@@ -1310,6 +1321,19 @@ describe("CompanionWorkspace", () => {
     expect(
       screen.getAllByText(
         "Aster is pinned near the active app and currently letting clicks pass through.",
+      ).length,
+    ).toBeGreaterThan(0);
+
+    await user.selectOptions(
+      screen.getByLabelText("Choose desktop presence anchor"),
+      "active-window-top-right",
+    );
+    await waitFor(() => {
+      expect(screen.getByText("Anchor: top-right of active app")).toBeInTheDocument();
+    });
+    expect(
+      screen.getAllByText(
+        "Aster is perched on the active app and currently letting clicks pass through.",
       ).length,
     ).toBeGreaterThan(0);
 

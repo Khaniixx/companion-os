@@ -6,6 +6,8 @@ export type CompanionWindowPresence = {
     | "desktop-left"
     | "active-window-right"
     | "active-window-left"
+    | "active-window-top-right"
+    | "active-window-top-left"
     | "workspace";
 };
 
@@ -14,6 +16,9 @@ const DEFAULT_WORKSPACE_HEIGHT = 820;
 const PINNED_WIDTH = 440;
 const PINNED_HEIGHT = 760;
 const PINNED_MARGIN = 24;
+const PERCHED_WIDTH = 360;
+const PERCHED_HEIGHT = 560;
+const PERCH_OVERLAP = 124;
 
 type SavedWindowPlacement = {
   width: number;
@@ -71,14 +76,22 @@ export async function applyOverlayWindowState(
       const monitor = await currentMonitor();
       if (monitor !== null) {
         const workArea = monitor.workArea;
-        const width = Math.min(PINNED_WIDTH, Math.max(360, workArea.size.width - PINNED_MARGIN * 2));
+        const perchedAnchor =
+          settings.anchor === "active-window-top-left" ||
+          settings.anchor === "active-window-top-right";
+        const width = Math.min(
+          perchedAnchor ? PERCHED_WIDTH : PINNED_WIDTH,
+          Math.max(360, workArea.size.width - PINNED_MARGIN * 2),
+        );
         const height = Math.min(
-          PINNED_HEIGHT,
+          perchedAnchor ? PERCHED_HEIGHT : PINNED_HEIGHT,
           Math.max(420, workArea.size.height - PINNED_MARGIN * 2),
         );
         const activeWindowBounds =
           settings.anchor === "active-window-left" ||
-          settings.anchor === "active-window-right"
+          settings.anchor === "active-window-right" ||
+          settings.anchor === "active-window-top-left" ||
+          settings.anchor === "active-window-top-right"
             ? await loadActiveWindowBounds()
             : null;
         const resolvedAnchor =
@@ -86,17 +99,27 @@ export async function applyOverlayWindowState(
             ? "desktop-left"
             : settings.anchor === "active-window-right"
               ? "desktop-right"
+              : settings.anchor === "active-window-top-left"
+                ? "desktop-left"
+                : settings.anchor === "active-window-top-right"
+                  ? "desktop-right"
               : settings.anchor;
         const targetX =
           activeWindowBounds !== null
-            ? resolvedAnchor === "desktop-left"
-              ? activeWindowBounds.x - width - PINNED_MARGIN
-              : activeWindowBounds.x + activeWindowBounds.width + PINNED_MARGIN
+            ? perchedAnchor
+              ? resolvedAnchor === "desktop-left"
+                ? activeWindowBounds.x
+                : activeWindowBounds.x + activeWindowBounds.width - width
+              : resolvedAnchor === "desktop-left"
+                ? activeWindowBounds.x - width - PINNED_MARGIN
+                : activeWindowBounds.x + activeWindowBounds.width + PINNED_MARGIN
             : null;
         const targetY =
           activeWindowBounds !== null
-            ? activeWindowBounds.y +
-              Math.max(0, Math.round((activeWindowBounds.height - height) / 2))
+            ? perchedAnchor
+              ? activeWindowBounds.y - height + PERCH_OVERLAP
+              : activeWindowBounds.y +
+                Math.max(0, Math.round((activeWindowBounds.height - height) / 2))
             : null;
         const minX = workArea.position.x + PINNED_MARGIN;
         const maxX = workArea.position.x + workArea.size.width - width - PINNED_MARGIN;
@@ -111,7 +134,10 @@ export async function applyOverlayWindowState(
         const y =
           targetY !== null
             ? Math.max(minY, Math.min(maxY, targetY))
-            : workArea.position.y + Math.max(PINNED_MARGIN, workArea.size.height - height - PINNED_MARGIN);
+            : perchedAnchor
+              ? minY
+              : workArea.position.y +
+                Math.max(PINNED_MARGIN, workArea.size.height - height - PINNED_MARGIN);
 
         await currentWindow.setResizable(false);
         await currentWindow.setSize(new PhysicalSize(width, height));

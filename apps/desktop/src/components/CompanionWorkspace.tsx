@@ -75,6 +75,8 @@ type PresenceStatus = {
     | "desktop-left"
     | "active-window-right"
     | "active-window-left"
+    | "active-window-top-right"
+    | "active-window-top-left"
     | "workspace";
   state: "workspace" | "pinned" | "click-through";
   message: string;
@@ -1432,9 +1434,13 @@ export function CompanionWorkspace() {
         ? "left of active app"
         : presenceStatus?.anchor === "active-window-right"
           ? "right of active app"
-      : presenceStatus?.anchor === "desktop-right"
-        ? "desktop right"
-        : "workspace";
+          : presenceStatus?.anchor === "active-window-top-left"
+            ? "top-left of active app"
+            : presenceStatus?.anchor === "active-window-top-right"
+              ? "top-right of active app"
+              : presenceStatus?.anchor === "desktop-right"
+                ? "desktop right"
+                : "workspace";
   const companionStateSummary =
     companionState === "idle"
       ? "Settled nearby and ready for the next small thing."
@@ -1745,6 +1751,8 @@ export function CompanionWorkspace() {
                     <option value="desktop-left">Desktop left</option>
                     <option value="active-window-right">Right of active app</option>
                     <option value="active-window-left">Left of active app</option>
+                    <option value="active-window-top-right">Top-right of active app</option>
+                    <option value="active-window-top-left">Top-left of active app</option>
                     <option value="workspace">Workspace only</option>
                   </select>
                 </label>

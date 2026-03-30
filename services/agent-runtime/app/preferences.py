@@ -88,6 +88,8 @@ def _read_preferences() -> dict[str, object]:
         "desktop-left",
         "active-window-right",
         "active-window-left",
+        "active-window-top-right",
+        "active-window-top-left",
         "workspace",
     }:
         anchor = "desktop-right"
@@ -297,6 +299,8 @@ def update_presence_settings(
         "desktop-left",
         "active-window-right",
         "active-window-left",
+        "active-window-top-right",
+        "active-window-top-left",
         "workspace",
     }
     normalized_anchor = None if anchor is None else anchor.strip().lower()

@@ -152,6 +152,31 @@ describe("applyOverlayWindowState", () => {
     );
   });
 
+  it("perches on the top edge of the active window when a top anchor is selected", async () => {
+    const { applyOverlayWindowState } = await import("./overlayController");
+    invokeMock.mockResolvedValue({
+      x: 640,
+      y: 240,
+      width: 920,
+      height: 760,
+      title: "Browser",
+    });
+
+    await applyOverlayWindowState({
+      enabled: true,
+      clickThroughEnabled: false,
+      anchor: "active-window-top-right",
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("active_window_bounds");
+    expect(currentWindowMock.setSize).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 360, height: 560 }),
+    );
+    expect(currentWindowMock.setPosition).toHaveBeenCalledWith(
+      expect.objectContaining({ x: 1200, y: 24 }),
+    );
+  });
+
   it("keeps stream overlays from triggering desktop affinity placement", async () => {
     const { applyOverlayWindowState } = await import("./overlayController");
 
