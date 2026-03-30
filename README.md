@@ -31,7 +31,8 @@ The goal is a single companion identity that:
 - defaults to free, local, open-source models
 - helps with real desktop actions like app launching, browser tasks, and lightweight utilities
 - keeps one personality across onboarding, chat, reactions, and settings
-- grows toward deeper customization without depending on copyrighted characters or voices
+- grows toward deeper customization through local user-imported voice, avatar,
+  and personality packs
 
 The guiding rule for the project is:
 
@@ -60,6 +61,24 @@ The current `main` branch already includes:
 - app-launcher and browser-helper skills
 - local memory, privacy controls, and micro-utilities
 - Windows packaging, CI, CodeQL, and dependency/security checks
+
+## Product Direction On Customization
+
+Companion OS is being built so voice, avatar presentation, and personality pack
+identity are part of the base product, not optional garnish.
+
+That means the long-term product direction includes:
+
+- real voice as a first-class companion system
+- richer avatar and character model support
+- deeper personality pack identity
+- local user-imported custom packs so users can shape the companion around what
+  they care about
+
+The product should feel personal and customizable in the same broad spirit that
+people customize Rainmeter, desktop companions, or other character-driven
+software, while still keeping the shipped default experience stable and
+maintainable.
 
 ## Why It Feels Different
 

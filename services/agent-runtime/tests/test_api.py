@@ -942,6 +942,36 @@ def test_get_open_url_permission_defaults_to_not_granted() -> None:
     assert response.json() == {"permission": "open_url", "granted": False}
 
 
+def test_voice_preferences_default_to_ready_with_active_profile() -> None:
+    response = client.get("/api/preferences/voice")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "enabled": True,
+        "available": True,
+        "state": "ready",
+        "provider": "local",
+        "voice_id": "default",
+        "locale": "en-US",
+        "style": "gentle",
+        "display_name": "Aster",
+        "message": "Aster's voice is ready when you want it.",
+    }
+
+
+def test_voice_preferences_can_be_muted(temp_state_files: Path) -> None:
+    update_response = client.put("/api/preferences/voice", json={"enabled": False})
+    read_response = client.get("/api/preferences/voice")
+
+    assert update_response.status_code == 200
+    assert update_response.json()["state"] == "muted"
+    assert update_response.json()["enabled"] is False
+    assert read_response.status_code == 200
+    assert read_response.json()["state"] == "muted"
+    assert read_response.json()["enabled"] is False
+    assert '"enabled": false' in temp_state_files.read_text(encoding="utf-8")
+
+
 def test_update_open_url_permission_persists_value(
     temp_state_files: Path,
 ) -> None:
