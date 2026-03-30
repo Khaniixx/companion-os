@@ -6,6 +6,7 @@ import base64
 import binascii
 import hashlib
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -504,17 +505,6 @@ def _metadata_path(pack_dir: Path) -> Path:
     return pack_dir / PACK_INSTALL_METADATA_NAME
 
 
-def _resolve_within(base_dir: Path, candidate: Path) -> Path:
-    resolved_base_dir = base_dir.resolve()
-    candidate_path = candidate if candidate.is_absolute() else resolved_base_dir / candidate
-    resolved_candidate = candidate_path.resolve()
-    try:
-        relative_path = resolved_candidate.relative_to(resolved_base_dir)
-    except ValueError as error:
-        raise ValueError("Path escapes base directory") from error
-    return resolved_base_dir / relative_path
-
-
 def _pack_dir_for_id(pack_id: str) -> Path:
     normalized_pack_id = pack_id.strip().lower()
     if not PACK_ID_PATTERN.fullmatch(normalized_pack_id):
@@ -527,7 +517,16 @@ def _manifest_path_for_pack_dir(pack_dir: Path) -> Path:
 
 
 def _asset_path_for_pack_dir(pack_dir: Path, asset_path: str) -> Path:
-    return _resolve_within(pack_dir, pack_dir / _normalized_relative_path(asset_path))
+    normalized_asset_path = _normalized_relative_path(asset_path)
+    resolved_pack_dir = pack_dir.resolve()
+    candidate_path = resolved_pack_dir.joinpath(*PurePosixPath(normalized_asset_path).parts)
+    resolved_candidate = candidate_path.resolve()
+    if (
+        os.path.commonpath([os.fspath(resolved_pack_dir), os.fspath(resolved_candidate)])
+        != os.fspath(resolved_pack_dir)
+    ):
+        raise ValueError("Path escapes base directory")
+    return resolved_candidate
 
 
 def _write_install_metadata(pack_dir: Path, *, source: str, archive_name: str) -> None:
@@ -642,7 +641,7 @@ def _install_from_directory(
     PACKS_DIR.mkdir(parents=True, exist_ok=True)
 
     destination_dir = _pack_dir_for_id(manifest.id)
-    staging_dir = _resolve_within(PACKS_DIR, PACKS_DIR / f".{manifest.id}.tmp")
+    staging_dir = PACKS_DIR / f".{manifest.id}.tmp"
     if staging_dir.exists():
         shutil.rmtree(staging_dir)
     if destination_dir.exists():
