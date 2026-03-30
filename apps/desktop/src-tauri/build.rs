@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
+#[cfg(target_os = "windows")]
 fn ensure_runtime_resource_placeholder() {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let runtime_path = manifest_dir.join("binaries").join("companion-runtime.exe");
@@ -15,6 +16,9 @@ fn ensure_runtime_resource_placeholder() {
 
     fs::write(&runtime_path, []).expect("create runtime resource placeholder");
 }
+
+#[cfg(not(target_os = "windows"))]
+fn ensure_runtime_resource_placeholder() {}
 
 fn main() {
     ensure_runtime_resource_placeholder();

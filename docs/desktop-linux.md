@@ -1,3 +1,14 @@
+## Linux Runtime Limitation (March 2026)
+
+**Current status:** The Companion OS desktop app cannot fully launch on Linux because no native runtime binary is provided or bundled. The Windows-only `companion-runtime.exe` is not referenced or required on Linux, but there is no equivalent Linux binary yet.
+
+- The app will show an error like `Could not find the local runtime binary` when run on Linux.
+- This is expected and matches the current product state.
+- No Windows packaging or runtime behavior is affected by this change.
+
+**Experimental:** Linux support remains experimental. Do not claim Linux is fully supported or release-ready. See AGENTS.md for guardrails.
+
+**Next steps:** A Linux-native runtime build is required for full desktop functionality. Until then, Linux builds are for packaging and validation only.
 # Desktop Linux Notes
 
 Companion OS desktop packaging is being validated for Linux, with Ubuntu 24.04
