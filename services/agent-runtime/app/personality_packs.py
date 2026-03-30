@@ -62,6 +62,8 @@ LOCAL_IMPORTER_PUBLIC_KEY: Final[dict[str, str]] = {
     "e": _to_base64url(LOCAL_IMPORTER_RSA_EXPONENT),
 }
 PACK_ID_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+HEX_COLOR_PATTERN: Final[re.Pattern[str]] = re.compile(r"^#[0-9a-fA-F]{6}$")
+AVATAR_PRESENTATION_MODES: Final[set[str]] = {"shell", "portrait", "model"}
 
 
 def _normalized_relative_path(value: str) -> str:
@@ -174,6 +176,10 @@ class AvatarConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    presentation_mode: str | None = None
+    stage_label: str | None = None
+    accent_color: str | None = None
+    aura_color: str | None = None
     icon_path: str | None = None
     model_path: str | None = None
     idle_animation: str | None = None
@@ -189,6 +195,39 @@ class AvatarConfig(BaseModel):
         if value is None:
             return value
         return _normalized_relative_path(value)
+
+    @field_validator("presentation_mode")
+    @classmethod
+    def validate_presentation_mode(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+
+        normalized_value = value.strip().lower()
+        if normalized_value not in AVATAR_PRESENTATION_MODES:
+            raise ValueError(
+                "presentation_mode must be one of: shell, portrait, model"
+            )
+        return normalized_value
+
+    @field_validator("stage_label")
+    @classmethod
+    def validate_stage_label(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+
+        normalized_value = value.strip()
+        return normalized_value or None
+
+    @field_validator("accent_color", "aura_color")
+    @classmethod
+    def validate_optional_color(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+
+        normalized_value = value.strip()
+        if not HEX_COLOR_PATTERN.fullmatch(normalized_value):
+            raise ValueError("Avatar colors must be #RRGGBB values.")
+        return normalized_value
 
     @field_validator("audio_cues")
     @classmethod
@@ -375,6 +414,10 @@ def _default_personality_profile() -> dict[str, object]:
             "style": "gentle",
         },
         "avatar": {
+            "presentation_mode": "shell",
+            "stage_label": "Desk shell",
+            "accent_color": "#9db9ff",
+            "aura_color": "#87ead8",
             "idle_animation": "idle",
             "listening_animation": "listening",
             "thinking_animation": "thinking",
@@ -944,6 +987,10 @@ def _build_imported_manifest(
                 "style": "conversational",
             },
             "avatar": {
+                "presentation_mode": "portrait",
+                "stage_label": "Imported card",
+                "accent_color": "#b39dff",
+                "aura_color": "#8fe7dc",
                 "icon_path": icon_path,
                 "model_path": None,
                 "idle_animation": "idle",

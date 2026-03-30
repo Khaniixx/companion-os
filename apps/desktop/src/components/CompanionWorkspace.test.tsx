@@ -558,7 +558,7 @@ function createFetchMock(
                   ],
                   optional_capabilities: [],
                   active: true,
-                  icon_data_url: null,
+                  icon_data_url: "data:image/png;base64,AAAA",
                   installed_at: "2026-03-29T00:00:00+00:00",
                   system_prompt: "Stay warm, grounded, and practical.",
                   style_rules: [
@@ -572,6 +572,10 @@ function createFetchMock(
                     style: "warm",
                   },
                   avatar: {
+                    presentation_mode: "portrait",
+                    stage_label: "Pack portrait",
+                    accent_color: "#8FAEFF",
+                    aura_color: "#8CE6D8",
                     idle_animation: "sunrise-idle",
                     listening_animation: "sunrise-listening",
                     thinking_animation: "sunrise-thinking",
@@ -989,7 +993,9 @@ describe("CompanionWorkspace", () => {
     expect(screen.getByText("Ask a small question")).toBeInTheDocument();
     expect(screen.getByText("Set a timer or save a note")).toBeInTheDocument();
     expect(screen.getAllByText("Runtime ready").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Pack-styled").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Sunrise").length).toBeGreaterThan(0);
+    expect(screen.getByText("Pack portrait")).toBeInTheDocument();
     expect(
       screen.getByText("The desk is quiet. Sunrise is nearby and ready when you are."),
     ).toBeInTheDocument();
@@ -1115,6 +1121,11 @@ describe("CompanionWorkspace", () => {
     expect(screen.getAllByText("llama3.1:8b-instruct").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Sunrise").length).toBeGreaterThan(0);
     expect(screen.getByText("OpenClaw ready")).toBeInTheDocument();
+    expect(screen.getByText("Avatar profile")).toBeInTheDocument();
+    expect(screen.getAllByText("Pack-styled").length).toBeGreaterThan(0);
+    expect(
+      screen.getByText("This pack is already carrying portrait art for the shell."),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Reset permissions" }));
     await waitFor(() => {

@@ -84,6 +84,10 @@ def make_pack_archive(
                 "style": "warm",
             },
             "avatar": {
+                "presentation_mode": "portrait",
+                "stage_label": "Pack portrait",
+                "accent_color": "#8FAEFF",
+                "aura_color": "#8CE6D8",
                 "icon_path": "assets/icon.png",
                 "model_path": None,
                 "idle_animation": "idle",
@@ -175,6 +179,8 @@ def test_default_active_pack_profile_is_intentional_when_no_pack_is_selected() -
     assert "default Companion OS companion" in profile["system_prompt"]
     assert "Sound calm, present, and lightly personal." in profile["style_rules"]
     assert profile["voice"]["style"] == "gentle"
+    assert profile["avatar"]["presentation_mode"] == "shell"
+    assert profile["avatar"]["stage_label"] == "Desk shell"
 
 
 def test_install_pack_archive_persists_and_auto_selects() -> None:
