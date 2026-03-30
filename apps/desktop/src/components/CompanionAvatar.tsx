@@ -14,6 +14,8 @@ type CompanionAvatarProps = {
     | "desktop-left"
     | "active-window-right"
     | "active-window-left"
+    | "active-window-top-right"
+    | "active-window-top-left"
     | "workspace";
   presencePinned?: boolean;
 };
@@ -136,7 +138,9 @@ function getAttachmentMode(
   }
   if (
     presenceAnchor === "active-window-left" ||
-    presenceAnchor === "active-window-right"
+    presenceAnchor === "active-window-right" ||
+    presenceAnchor === "active-window-top-left" ||
+    presenceAnchor === "active-window-top-right"
   ) {
     return "attached";
   }
@@ -150,6 +154,10 @@ function getAttachmentLabel(
   if (attachmentMode === "attached") {
     return presenceAnchor === "active-window-left"
       ? "Attached left of active app"
+      : presenceAnchor === "active-window-top-left"
+        ? "Perched on top-left of active app"
+        : presenceAnchor === "active-window-top-right"
+          ? "Perched on top-right of active app"
       : "Attached right of active app";
   }
   if (attachmentMode === "docked") {
