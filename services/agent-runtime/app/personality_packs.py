@@ -889,8 +889,6 @@ def get_pack_model_asset_path(pack_id: str) -> Path:
     if asset_path is None:
         raise ValueError("Pack does not declare a model asset.")
     return _asset_path_for_pack_dir(_pack_dir_for_id(manifest.id), asset_path)
-
-
 def install_pack_archive(*, filename: str, archive_bytes: bytes) -> dict[str, object]:
     """Install a zipped personality pack after validating its schema and assets."""
 
