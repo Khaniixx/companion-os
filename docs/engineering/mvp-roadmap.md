@@ -218,6 +218,12 @@ Acceptance criteria:
 - charming but restrained idle behavior exists
 - error and recovery states still feel companion-like
 - imported and pack-defined characters start to read as real identity shifts,
+  not just presentation swaps
+- local desk prompts can pull from a real context bundle that includes current
+  continuity, unresolved notes/tasks, desk state, and pack character framing
+- continuity can distinguish between a shared user thread and the active pack's
+  thread so imported characters feel more distinct over time without pretending
+  long-term memory is solved
   not only Aster with different assets
 
 ### Milestone 5: Reliable Core Actions

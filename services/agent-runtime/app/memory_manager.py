@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from threading import Lock
 from typing import Final, Literal, TypedDict
 
+from app.personality_packs import get_active_pack_id
 from app.preferences import get_memory_settings
 from app.runtime_paths import runtime_data_path
 
@@ -34,12 +35,20 @@ class MemorySummary(TypedDict):
     created_at: str
     updated_at: str
     source: str
+    pack_id: str | None
+    thread: Literal["shared", "pack"]
+
+
+class MemoryThreadState(TypedDict):
+    pending_messages: list[MemoryMessage]
+    summaries: list[MemorySummary]
 
 
 class MemoryState(TypedDict):
     next_summary_id: int
     pending_messages: list[MemoryMessage]
     summaries: list[MemorySummary]
+    pack_threads: dict[str, MemoryThreadState]
 
 
 def _now_iso() -> str:
@@ -51,6 +60,7 @@ def _default_state() -> MemoryState:
         "next_summary_id": 1,
         "pending_messages": [],
         "summaries": [],
+        "pack_threads": {},
     }
 
 
@@ -113,13 +123,78 @@ def _normalize_state(raw_state: object) -> MemoryState:
                 "created_at": str(item.get("created_at") or _now_iso()),
                 "updated_at": str(item.get("updated_at") or _now_iso()),
                 "source": str(item.get("source") or "local"),
+                "pack_id": None,
+                "thread": "shared",
             }
         )
+
+    pack_threads: dict[str, MemoryThreadState] = {}
+    raw_pack_threads = raw_state.get("pack_threads", {})
+    if isinstance(raw_pack_threads, dict):
+        for raw_pack_id, raw_thread in raw_pack_threads.items():
+            if not isinstance(raw_pack_id, str) or not raw_pack_id.strip():
+                continue
+            if not isinstance(raw_thread, dict):
+                continue
+
+            normalized_pending_messages: list[MemoryMessage] = []
+            for item in raw_thread.get("pending_messages", []):
+                if not isinstance(item, dict):
+                    continue
+                sender = item.get("sender")
+                text = item.get("text")
+                created_at = item.get("created_at")
+                if sender not in {"user", "companion"} or not isinstance(text, str):
+                    continue
+                normalized_pending_messages.append(
+                    {
+                        "sender": sender,
+                        "text": text.strip(),
+                        "created_at": str(created_at or _now_iso()),
+                    }
+                )
+
+            normalized_summaries: list[MemorySummary] = []
+            for item in raw_thread.get("summaries", []):
+                if not isinstance(item, dict):
+                    continue
+                summary_id = item.get("id")
+                title = item.get("title")
+                summary = item.get("summary")
+                message_count = item.get("message_count")
+                if (
+                    not isinstance(summary_id, int)
+                    or summary_id < 1
+                    or not isinstance(title, str)
+                    or not isinstance(summary, str)
+                    or not isinstance(message_count, int)
+                ):
+                    continue
+
+                normalized_summaries.append(
+                    {
+                        "id": summary_id,
+                        "title": title.strip(),
+                        "summary": summary.strip(),
+                        "message_count": message_count,
+                        "created_at": str(item.get("created_at") or _now_iso()),
+                        "updated_at": str(item.get("updated_at") or _now_iso()),
+                        "source": str(item.get("source") or "local"),
+                        "pack_id": raw_pack_id,
+                        "thread": "pack",
+                    }
+                )
+
+            pack_threads[raw_pack_id] = {
+                "pending_messages": normalized_pending_messages,
+                "summaries": normalized_summaries,
+            }
 
     return {
         "next_summary_id": next_summary_id,
         "pending_messages": pending_messages,
         "summaries": summaries,
+        "pack_threads": pack_threads,
     }
 
 
@@ -172,38 +247,81 @@ def _build_summary_text(messages: list[MemoryMessage]) -> str:
     return _trim_text(" ".join(sections), limit=MAX_SUMMARY_TEXT_LENGTH)
 
 
-def _create_summary_from_pending(state: MemoryState) -> MemorySummary | None:
-    if not state["pending_messages"]:
+def _thread_state(state: MemoryState, pack_id: str | None) -> MemoryThreadState:
+    if pack_id is None:
+        return {
+            "pending_messages": state["pending_messages"],
+            "summaries": state["summaries"],
+        }
+
+    existing = state["pack_threads"].get(pack_id)
+    if existing is None:
+        existing = {
+            "pending_messages": [],
+            "summaries": [],
+        }
+        state["pack_threads"][pack_id] = existing
+    return existing
+
+
+def _create_summary_from_pending(
+    state: MemoryState,
+    *,
+    pack_id: str | None = None,
+) -> MemorySummary | None:
+    thread_state = _thread_state(state, pack_id)
+    if not thread_state["pending_messages"]:
         return None
 
     summary_id = state["next_summary_id"]
     state["next_summary_id"] += 1
     now = _now_iso()
     user_messages = [
-        message["text"] for message in state["pending_messages"] if message["sender"] == "user"
+        message["text"]
+        for message in thread_state["pending_messages"]
+        if message["sender"] == "user"
     ]
     summary: MemorySummary = {
         "id": summary_id,
         "title": _summary_title(user_messages),
-        "summary": _build_summary_text(state["pending_messages"]),
-        "message_count": len(state["pending_messages"]),
+        "summary": _build_summary_text(thread_state["pending_messages"]),
+        "message_count": len(thread_state["pending_messages"]),
         "created_at": now,
         "updated_at": now,
         "source": "local",
+        "pack_id": pack_id,
+        "thread": "pack" if pack_id is not None else "shared",
     }
-    state["summaries"].insert(0, summary)
-    state["pending_messages"] = []
+    if pack_id is None:
+        state["summaries"].insert(0, summary)
+        state["pending_messages"] = []
+    else:
+        pack_thread_state = _thread_state(state, pack_id)
+        pack_thread_state["summaries"].insert(0, summary)
+        pack_thread_state["pending_messages"] = []
     return summary
 
 
-def list_memory_state() -> dict[str, object]:
+def list_memory_state(*, active_pack_id: str | None = None) -> dict[str, object]:
     """Return stored summaries and the pending unsummarized message count."""
 
     with _memory_lock:
         state = _read_state()
+        active_pack_state = (
+            state["pack_threads"].get(active_pack_id)
+            if active_pack_id is not None
+            else None
+        )
         return {
             "summaries": state["summaries"],
             "pending_message_count": len(state["pending_messages"]),
+            "shared_summaries": state["summaries"],
+            "shared_pending_message_count": len(state["pending_messages"]),
+            "active_pack_id": active_pack_id,
+            "pack_summaries": active_pack_state["summaries"] if active_pack_state else [],
+            "pack_pending_message_count": (
+                len(active_pack_state["pending_messages"]) if active_pack_state else 0
+            ),
         }
 
 
@@ -222,24 +340,32 @@ def record_chat_turn(user_message: str, assistant_response: str) -> MemorySummar
     with _memory_lock:
         state = _read_state()
         now = _now_iso()
-        state["pending_messages"].extend(
-            [
-                {
-                    "sender": "user",
-                    "text": user_message.strip(),
-                    "created_at": now,
-                },
-                {
-                    "sender": "companion",
-                    "text": assistant_response.strip(),
-                    "created_at": now,
-                },
-            ]
-        )
+        chat_turn_messages: list[MemoryMessage] = [
+            {
+                "sender": "user",
+                "text": user_message.strip(),
+                "created_at": now,
+            },
+            {
+                "sender": "companion",
+                "text": assistant_response.strip(),
+                "created_at": now,
+            },
+        ]
+        state["pending_messages"].extend(chat_turn_messages)
+        active_pack_id = get_active_pack_id()
+        if active_pack_id:
+            _thread_state(state, active_pack_id)["pending_messages"].extend(
+                [message.copy() for message in chat_turn_messages]
+            )
         summary_frequency_messages = int(settings["summary_frequency_messages"])
         created_summary = None
         if len(state["pending_messages"]) >= summary_frequency_messages:
             created_summary = _create_summary_from_pending(state)
+        if active_pack_id:
+            pack_thread_state = _thread_state(state, active_pack_id)
+            if len(pack_thread_state["pending_messages"]) >= summary_frequency_messages:
+                _create_summary_from_pending(state, pack_id=active_pack_id)
         _write_state(state)
         return created_summary
 
@@ -281,6 +407,31 @@ def update_memory_summary(
             _write_state(state)
             return stored_summary
 
+        for pack_thread in state["pack_threads"].values():
+            for stored_summary in pack_thread["summaries"]:
+                if stored_summary["id"] != summary_id:
+                    continue
+
+                if title is not None:
+                    normalized_title = title.strip()
+                    if not normalized_title:
+                        raise ValueError("title must not be empty")
+                    stored_summary["title"] = _trim_text(
+                        normalized_title,
+                        limit=MAX_SUMMARY_TITLE_LENGTH,
+                    )
+                if summary is not None:
+                    normalized_summary = summary.strip()
+                    if not normalized_summary:
+                        raise ValueError("summary must not be empty")
+                    stored_summary["summary"] = _trim_text(
+                        normalized_summary,
+                        limit=MAX_SUMMARY_TEXT_LENGTH,
+                    )
+                stored_summary["updated_at"] = _now_iso()
+                _write_state(state)
+                return stored_summary
+
     raise ValueError(f"Memory summary not found: {summary_id}")
 
 
@@ -293,10 +444,22 @@ def delete_memory_summary(summary_id: int) -> int:
         state["summaries"] = [
             summary for summary in state["summaries"] if summary["id"] != summary_id
         ]
-        if len(state["summaries"]) == original_count:
-            raise ValueError(f"Memory summary not found: {summary_id}")
-        _write_state(state)
-        return summary_id
+        if len(state["summaries"]) != original_count:
+            _write_state(state)
+            return summary_id
+
+        for pack_thread in state["pack_threads"].values():
+            original_pack_count = len(pack_thread["summaries"])
+            pack_thread["summaries"] = [
+                summary
+                for summary in pack_thread["summaries"]
+                if summary["id"] != summary_id
+            ]
+            if len(pack_thread["summaries"]) != original_pack_count:
+                _write_state(state)
+                return summary_id
+
+        raise ValueError(f"Memory summary not found: {summary_id}")
 
 
 def clear_memory_summaries() -> int:
@@ -305,6 +468,10 @@ def clear_memory_summaries() -> int:
     with _memory_lock:
         state = _read_state()
         deleted_count = len(state["summaries"])
+        for pack_thread in state["pack_threads"].values():
+            deleted_count += len(pack_thread["summaries"])
+            pack_thread["summaries"] = []
+            pack_thread["pending_messages"] = []
         state["summaries"] = []
         state["pending_messages"] = []
         _write_state(state)
@@ -316,7 +483,12 @@ def clear_pending_memory() -> None:
 
     with _memory_lock:
         state = _read_state()
-        if not state["pending_messages"]:
+        has_pending_pack_messages = any(
+            thread["pending_messages"] for thread in state["pack_threads"].values()
+        )
+        if not state["pending_messages"] and not has_pending_pack_messages:
             return
         state["pending_messages"] = []
+        for pack_thread in state["pack_threads"].values():
+            pack_thread["pending_messages"] = []
         _write_state(state)

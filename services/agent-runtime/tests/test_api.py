@@ -273,6 +273,11 @@ def test_chat_returns_structured_companion_reply(monkeypatch) -> None:
     payload = memory_response.json()
     assert payload["pending_message_count"] == 0
     assert payload["summaries"][0]["title"] == "Recent: hello companion"
+    assert payload["shared_pending_message_count"] == 0
+    assert payload["shared_summaries"][0]["title"] == "Recent: hello companion"
+    assert payload["active_pack_id"] is None
+    assert payload["pack_summaries"] == []
+    assert payload["pack_pending_message_count"] == 0
 
 
 def test_chat_returns_structured_app_route(monkeypatch) -> None:
@@ -1014,6 +1019,8 @@ def test_memory_settings_update_and_summary_edit_delete(monkeypatch) -> None:
     summaries_response = client.get("/api/memory/summaries")
     assert summaries_response.status_code == 200
     summary_id = summaries_response.json()["summaries"][0]["id"]
+    assert len(summaries_response.json()["shared_summaries"]) == 1
+    assert summaries_response.json()["pack_summaries"] == []
 
     edit_response = client.put(
         f"/api/memory/summaries/{summary_id}",
@@ -1054,6 +1061,8 @@ def test_disabling_memory_clears_pending_messages(monkeypatch) -> None:
 
     before_response = client.get("/api/memory/summaries")
     assert before_response.json()["pending_message_count"] == 2
+    assert before_response.json()["shared_pending_message_count"] == 2
+    assert before_response.json()["pack_pending_message_count"] == 0
 
     update_response = client.put(
         "/api/memory/settings",
@@ -1065,6 +1074,8 @@ def test_disabling_memory_clears_pending_messages(monkeypatch) -> None:
 
     after_response = client.get("/api/memory/summaries")
     assert after_response.json()["pending_message_count"] == 0
+    assert after_response.json()["shared_pending_message_count"] == 0
+    assert after_response.json()["pack_pending_message_count"] == 0
 
 
 def test_update_open_app_permission_persists_value(

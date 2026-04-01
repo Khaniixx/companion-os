@@ -18,6 +18,11 @@ export type MemorySummary = {
 export type MemorySummaryList = {
   summaries: MemorySummary[];
   pending_message_count: number;
+  shared_summaries: MemorySummary[];
+  shared_pending_message_count: number;
+  active_pack_id: string | null;
+  pack_summaries: MemorySummary[];
+  pack_pending_message_count: number;
 };
 
 export type MemoryApi = {

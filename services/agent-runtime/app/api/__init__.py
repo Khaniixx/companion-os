@@ -46,6 +46,7 @@ from app.marketplace import (
 )
 from app.personality_packs import (
     PACK_ID_PATTERN,
+    get_active_pack_id,
     get_active_pack_profile,
     get_pack_asset_path_by_hash,
     get_pack_live2d_model_manifest,
@@ -423,6 +424,11 @@ class MemorySummaryListResponse(BaseModel):
 
     summaries: list[MemorySummaryResponse]
     pending_message_count: int
+    shared_summaries: list[MemorySummaryResponse] = Field(default_factory=list)
+    shared_pending_message_count: int = 0
+    active_pack_id: str | None = None
+    pack_summaries: list[MemorySummaryResponse] = Field(default_factory=list)
+    pack_pending_message_count: int = 0
 
 
 class MemorySummaryUpdateRequest(BaseModel):
@@ -1138,7 +1144,9 @@ async def update_memory_preferences(
 async def get_memory_summaries() -> MemorySummaryListResponse:
     """Return stored long-term memory summaries."""
 
-    return MemorySummaryListResponse(**list_memory_state())
+    return MemorySummaryListResponse(
+        **list_memory_state(active_pack_id=get_active_pack_id())
+    )
 
 
 @router.put(

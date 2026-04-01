@@ -981,6 +981,16 @@ function createFetchMock(
             JSON.stringify({
               summaries: [
                 {
+                  id: 2,
+                  title: "Recent: sunrise rhythm",
+                  summary:
+                    "The user returned to Sunrise and kept the desk tone calm while planning the next task.",
+                  message_count: 4,
+                  created_at: "2026-03-29T00:30:00+00:00",
+                  updated_at: "2026-03-29T00:45:00+00:00",
+                  source: "local",
+                },
+                {
                   id: 1,
                   title: "Recent: local setup",
                   summary:
@@ -992,6 +1002,33 @@ function createFetchMock(
                 },
               ],
               pending_message_count: 2,
+              shared_summaries: [
+                {
+                  id: 1,
+                  title: "Recent: local setup",
+                  summary:
+                    "The user focused on local setup. The companion responded with a calm local reply.",
+                  message_count: 6,
+                  created_at: "2026-03-29T00:00:00+00:00",
+                  updated_at: "2026-03-29T00:00:00+00:00",
+                  source: "local",
+                },
+              ],
+              shared_pending_message_count: 2,
+              active_pack_id: "sunrise-companion",
+              pack_summaries: [
+                {
+                  id: 2,
+                  title: "Recent: sunrise rhythm",
+                  summary:
+                    "The user returned to Sunrise and kept the desk tone calm while planning the next task.",
+                  message_count: 4,
+                  created_at: "2026-03-29T00:30:00+00:00",
+                  updated_at: "2026-03-29T00:45:00+00:00",
+                  source: "local",
+                },
+              ],
+              pack_pending_message_count: 1,
             }),
             { status: 200 },
           ),
@@ -1165,7 +1202,7 @@ function createFetchMock(
         }
 
         if (
-          body.message.startsWith('Based on "Recent: local setup", what are the next one or two useful steps')
+          body.message.startsWith('Based on "Recent: sunrise rhythm", what are the next one or two useful steps')
         ) {
           return Promise.resolve(
             new Response(
@@ -1187,7 +1224,11 @@ function createFetchMock(
           );
         }
 
-        if (body.message === "Help me start today with Sunrise. Give me a calm check-in, point me at one useful next step, and keep the desk steady.") {
+        if (
+          body.message.startsWith(
+            "Help me start today with Sunrise. Give me a calm check-in, point me at one useful next step, and keep the desk steady.",
+          )
+        ) {
           return Promise.resolve(
             new Response(
               JSON.stringify({
@@ -1208,7 +1249,11 @@ function createFetchMock(
           );
         }
 
-        if (body.message === "Help me wrap up today with Sunrise. Summarize what matters, what should carry forward, and the next thread to pick up tomorrow.") {
+        if (
+          body.message.startsWith(
+            "Help me wrap up today with Sunrise. Summarize what matters, what should carry forward, and the next thread to pick up tomorrow.",
+          )
+        ) {
           return Promise.resolve(
             new Response(
               JSON.stringify({
@@ -1361,20 +1406,23 @@ afterEach(() => {
     expect(screen.getAllByText("Live2D-ready").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Voice ready").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Workspace only").length).toBeGreaterThan(0);
-      expect(screen.getAllByText("Sunrise").length).toBeGreaterThan(0);
-      expect(
-        screen.getAllByText(
-          "A bright early-day companion who keeps the desk calm and the next step practical.",
-        ).length,
-      ).toBeGreaterThan(0);
-      expect(screen.getByText("Recent: local setup")).toBeInTheDocument();
+    expect(screen.getAllByText("Sunrise").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(
+        "A bright early-day companion who keeps the desk calm and the next step practical.",
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText("Recent: sunrise rhythm")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "The user focused on local setup. The companion responded with a calm local reply.",
+        "The user returned to Sunrise and kept the desk tone calm while planning the next task.",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("6 messages tucked into local memory")).toBeInTheDocument();
-    expect(screen.getByText("2 fresh messages still settling")).toBeInTheDocument();
+    expect(screen.getByText("4 messages tucked into local memory")).toBeInTheDocument();
+    expect(screen.getByText("Pack thread ready for Sunrise")).toBeInTheDocument();
+    expect(screen.getByText("Shared thread ready")).toBeInTheDocument();
+    expect(screen.getAllByText("2 shared messages still settling").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1 pack-thread messages still settling").length).toBeGreaterThan(0);
     expect(screen.getByText("Local memory only")).toBeInTheDocument();
     expect(screen.getByText(/Last tucked away/)).toBeInTheDocument();
     expect(
@@ -1432,7 +1480,7 @@ afterEach(() => {
 
     expect(
       await screen.findByDisplayValue(
-        'Pick up where we left off from "Recent: local setup". Keep this in mind: The user focused on local setup. The companion responded with a calm local reply.',
+        /Pick up where we left off from "Recent: sunrise rhythm"\. Keep this in mind: The user returned to Sunrise and kept the desk tone calm while planning the next task\./,
       ),
     ).toBeInTheDocument();
   });
@@ -1468,7 +1516,7 @@ afterEach(() => {
 
     expect(
       await screen.findByDisplayValue(
-        'Based on "Recent: local setup", give me a calm check-in and help me resume from this thread: The user focused on local setup. The companion responded with a calm local reply.',
+        /Based on "Recent: sunrise rhythm", give me a calm check-in and help me resume from this thread: The user returned to Sunrise and kept the desk tone calm while planning the next task\./,
       ),
     ).toBeInTheDocument();
   });

@@ -33,6 +33,21 @@ function createMemoryApiMock() {
       },
     ],
     pending_message_count: 2,
+    shared_summaries: [
+      {
+        id: 1,
+        title: "Recent: local setup",
+        summary: "A local summary of the last setup conversation.",
+        message_count: 6,
+        created_at: "2026-03-29T00:00:00+00:00",
+        updated_at: "2026-03-29T01:00:00+00:00",
+        source: "local",
+      },
+    ],
+    shared_pending_message_count: 2,
+    active_pack_id: null,
+    pack_summaries: [],
+    pack_pending_message_count: 0,
   });
 
   updateSettings.mockImplementation(async (payload) => ({
