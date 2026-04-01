@@ -1,0 +1,2 @@
+paths-ignore:
+  - apps/desktop/src/vendor/pixi-live2d-display
