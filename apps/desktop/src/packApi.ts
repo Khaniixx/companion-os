@@ -92,17 +92,12 @@ export type PackApi = {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
-function encodePathSegment(value: string): string {
-  return encodeURIComponent(value).replace(/%2F/giu, "/");
-}
-
-export function buildPackAssetUrl(packId: string, assetPath: string): string {
+export function buildPackAssetUrl(
+  packId: string,
+  assetType: "preview-image" | "model-asset",
+): string {
   const encodedPackId = encodeURIComponent(packId);
-  const encodedAssetPath = assetPath
-    .split("/")
-    .map((segment) => encodePathSegment(segment))
-    .join("/");
-  return `${API_BASE_URL}/api/packs/${encodedPackId}/assets/${encodedAssetPath}`;
+  return `${API_BASE_URL}/api/packs/${encodedPackId}/${assetType}`;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

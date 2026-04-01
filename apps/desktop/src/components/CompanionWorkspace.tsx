@@ -147,12 +147,13 @@ function getActivePackFromResponse(packs: InstalledPack[]): InstalledPack | null
 
 function getPackAssetUrl(
   activePack: InstalledPack | null,
+  assetType: "preview-image" | "model-asset",
   assetPath: string | null | undefined,
 ): string | null {
   if (!activePack || typeof assetPath !== "string" || assetPath.trim().length === 0) {
     return null;
   }
-  return buildPackAssetUrl(activePack.id, assetPath);
+  return buildPackAssetUrl(activePack.id, assetType);
 }
 
 function getAmbientDeskCue(state: CompanionState, companionTitle: string): string {
@@ -461,11 +462,11 @@ export function CompanionWorkspace() {
   const [installerCompleted, setInstallerCompleted] = useState(false);
   const [activePack, setActivePack] = useState<InstalledPack | null>(null);
   const activePackPreviewImageUrl = useMemo(
-    () => getPackAssetUrl(activePack, activePack?.model?.preview_image_path),
+    () => getPackAssetUrl(activePack, "preview-image", activePack?.model?.preview_image_path),
     [activePack],
   );
   const activePackModelAssetUrl = useMemo(
-    () => getPackAssetUrl(activePack, activePack?.model?.asset_path),
+    () => getPackAssetUrl(activePack, "model-asset", activePack?.model?.asset_path),
     [activePack],
   );
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);

@@ -1290,7 +1290,7 @@ afterEach(() => {
     expect(screen.getAllByText("Resting in workspace").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Sunrise avatar is idle")).toHaveAttribute(
       "data-model-asset-url",
-      "http://127.0.0.1:8000/api/packs/sunrise-companion/assets/models/sunrise.model3.json",
+      "http://127.0.0.1:8000/api/packs/sunrise-companion/model-asset",
     );
     expect(
       screen.getAllByText(

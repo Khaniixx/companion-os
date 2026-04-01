@@ -637,11 +637,6 @@ def _manifest_path_for_pack_dir(pack_dir: Path) -> Path:
     return pack_dir / "pack.json"
 
 
-def _read_manifest_for_pack_dir(pack_dir: Path) -> PackManifest:
-    manifest_path = _manifest_path_for_pack_dir(pack_dir)
-    return PackManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
-
-
 def _declared_asset_path(manifest: PackManifest, asset_path: str) -> str:
     normalized_asset_path = _normalized_relative_path(asset_path)
     for declared_asset_path in manifest.security.asset_hashes:
@@ -652,7 +647,9 @@ def _declared_asset_path(manifest: PackManifest, asset_path: str) -> str:
 
 def _asset_path_for_pack_dir(pack_dir: Path, asset_path: str) -> Path:
     resolved_pack_dir = _resolved_pack_dir_within_root(pack_dir)
-    manifest = _read_manifest_for_pack_dir(resolved_pack_dir)
+    manifest = PackManifest.model_validate_json(
+        _manifest_path_for_pack_dir(resolved_pack_dir).read_text(encoding="utf-8")
+    )
     trusted_asset_path = _declared_asset_path(manifest, asset_path)
     resolved_asset_path = Path(
         os.path.realpath(
@@ -667,13 +664,6 @@ def _asset_path_for_pack_dir(pack_dir: Path, asset_path: str) -> Path:
     ):
         raise ValueError("Path escapes base directory")
     return resolved_asset_path
-
-
-def get_pack_asset_path(pack_id: str, asset_path: str) -> Path:
-    """Resolve one installed pack asset after pack-id and path validation."""
-
-    pack_dir = _pack_dir_for_id(pack_id)
-    return _asset_path_for_pack_dir(pack_dir, asset_path)
 
 
 def _write_install_metadata(pack_dir: Path, *, source: str, archive_name: str) -> None:
@@ -856,6 +846,51 @@ def list_installed_packs() -> dict[str, object]:
         }
 
 
+def _find_installed_manifest(pack_id: str) -> PackManifest | None:
+    normalized_pack_id = pack_id.strip().lower()
+    if not PACK_ID_PATTERN.fullmatch(normalized_pack_id):
+        raise ValueError(f"Invalid pack id: {pack_id}")
+
+    PACKS_DIR.mkdir(parents=True, exist_ok=True)
+    for pack_dir in sorted(path for path in PACKS_DIR.iterdir() if path.is_dir()):
+        manifest_path = _manifest_path_for_pack_dir(pack_dir)
+        if not manifest_path.exists():
+            continue
+        try:
+            manifest = PackManifest.model_validate_json(
+                manifest_path.read_text(encoding="utf-8")
+            )
+        except ValidationError:
+            continue
+        if manifest.id == normalized_pack_id:
+            return manifest
+    return None
+
+
+def get_pack_preview_image_path(pack_id: str) -> Path:
+    """Resolve the installed preview image declared by a pack manifest."""
+
+    manifest = _find_installed_manifest(pack_id)
+    if manifest is None:
+        raise ValueError(f"Installed pack not found: {pack_id.strip().lower()}")
+    preview_image_path = manifest.personality.model.preview_image_path
+    if preview_image_path is None:
+        raise ValueError("Pack does not declare a preview image.")
+    return _asset_path_for_pack_dir(_pack_dir_for_id(manifest.id), preview_image_path)
+
+
+def get_pack_model_asset_path(pack_id: str) -> Path:
+    """Resolve the installed model asset declared by a pack manifest."""
+
+    manifest = _find_installed_manifest(pack_id)
+    if manifest is None:
+        raise ValueError(f"Installed pack not found: {pack_id.strip().lower()}")
+    asset_path = manifest.personality.model.asset_path
+    if asset_path is None:
+        raise ValueError("Pack does not declare a model asset.")
+    return _asset_path_for_pack_dir(_pack_dir_for_id(manifest.id), asset_path)
+
+
 def install_pack_archive(*, filename: str, archive_bytes: bytes) -> dict[str, object]:
     """Install a zipped personality pack after validating its schema and assets."""
 
@@ -893,13 +928,11 @@ def select_active_pack(pack_id: str) -> dict[str, object]:
         raise ValueError("Pack id is required.")
 
     with _pack_lock:
-        pack_dir = _pack_dir_for_id(normalized_pack_id)
-        manifest_path = _manifest_path_for_pack_dir(pack_dir)
-        if not manifest_path.exists():
+        manifest = _find_installed_manifest(normalized_pack_id)
+        if manifest is None:
             raise ValueError(f"Installed pack not found: {normalized_pack_id}")
 
         set_active_pack_id(normalized_pack_id)
-        manifest = PackManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
 
     return {
         "active_pack_id": normalized_pack_id,

@@ -11,8 +11,8 @@ describe("CompanionStage", () => {
         displayName="Sunrise"
         packId="sunrise-companion"
         iconDataUrl="data:image/png;base64,AAAA"
-        previewImageUrl="http://127.0.0.1:8000/api/packs/sunrise-companion/assets/assets/icon.png"
-        modelAssetUrl="http://127.0.0.1:8000/api/packs/sunrise-companion/assets/models/sunrise.model3.json"
+        previewImageUrl="http://127.0.0.1:8000/api/packs/sunrise-companion/preview-image"
+        modelAssetUrl="http://127.0.0.1:8000/api/packs/sunrise-companion/model-asset"
         avatarConfig={{
           presentation_mode: "portrait",
           stage_label: "Pack portrait",
@@ -40,7 +40,7 @@ describe("CompanionStage", () => {
     expect(stage).toHaveAttribute("data-model-asset", "models/sunrise.model3.json");
     expect(stage).toHaveAttribute(
       "data-model-asset-url",
-      "http://127.0.0.1:8000/api/packs/sunrise-companion/assets/models/sunrise.model3.json",
+      "http://127.0.0.1:8000/api/packs/sunrise-companion/model-asset",
     );
     expect(stage).toHaveAttribute("data-live2d-hook", "idle-loop");
     expect(stage).toHaveAttribute("data-blink-hook", "blink-soft");
@@ -55,7 +55,7 @@ describe("CompanionStage", () => {
     expect(previewImage).not.toBeNull();
     expect(previewImage).toHaveAttribute(
       "src",
-      "http://127.0.0.1:8000/api/packs/sunrise-companion/assets/assets/icon.png",
+      "http://127.0.0.1:8000/api/packs/sunrise-companion/preview-image",
     );
   });
 

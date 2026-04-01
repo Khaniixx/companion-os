@@ -1688,7 +1688,7 @@ def test_pack_selection_rejects_invalid_pack_id_shape() -> None:
     assert response.status_code == 422
 
 
-def test_pack_asset_route_serves_installed_pack_asset() -> None:
+def test_pack_preview_image_route_serves_installed_pack_asset() -> None:
     archive_bytes = make_pack_archive()
 
     install_response = client.post(
@@ -1701,14 +1701,14 @@ def test_pack_asset_route_serves_installed_pack_asset() -> None:
 
     assert install_response.status_code == 200
 
-    asset_response = client.get("/api/packs/sunrise-companion/assets/assets/icon.png")
+    asset_response = client.get("/api/packs/sunrise-companion/preview-image")
 
     assert asset_response.status_code == 200
     assert asset_response.headers["content-type"] == "image/png"
     assert asset_response.content == base64.b64decode(PNG_1X1_BASE64)
 
 
-def test_pack_asset_route_rejects_traversal_path() -> None:
+def test_pack_model_asset_route_serves_installed_model_asset() -> None:
     archive_bytes = make_pack_archive()
 
     install_response = client.post(
@@ -1721,9 +1721,8 @@ def test_pack_asset_route_rejects_traversal_path() -> None:
 
     assert install_response.status_code == 200
 
-    asset_response = client.get(
-        "/api/packs/sunrise-companion/assets/%2E%2E/%2E%2E/outside.txt"
-    )
+    asset_response = client.get("/api/packs/sunrise-companion/model-asset")
 
-    assert asset_response.status_code == 400
-    assert asset_response.json()["detail"] == "Asset paths must stay inside the pack archive."
+    assert asset_response.status_code == 200
+    assert asset_response.headers["content-type"] == "application/octet-stream"
+    assert asset_response.content == b'{"version":"1.0"}'

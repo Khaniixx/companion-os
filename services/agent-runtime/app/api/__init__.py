@@ -44,8 +44,9 @@ from app.marketplace import (
 from app.personality_packs import (
     PACK_ID_PATTERN,
     get_active_pack_profile,
-    get_pack_asset_path,
+    get_pack_model_asset_path,
     get_pack_manifest_schema,
+    get_pack_preview_image_path,
     import_tavern_card,
     install_pack_archive,
     list_installed_packs,
@@ -1081,12 +1082,29 @@ async def get_pack_schema() -> PackSchemaResponse:
     return PackSchemaResponse(schema=get_pack_manifest_schema())
 
 
-@router.get("/packs/{pack_id}/assets/{asset_path:path}")
-async def get_pack_asset(pack_id: str, asset_path: str) -> FileResponse:
-    """Return one installed pack asset for local renderer consumption."""
+@router.get("/packs/{pack_id}/preview-image")
+async def get_pack_preview_image(pack_id: str) -> FileResponse:
+    """Return the installed preview image declared by one pack manifest."""
 
     try:
-        resolved_asset_path = get_pack_asset_path(pack_id, asset_path)
+        resolved_asset_path = get_pack_preview_image_path(pack_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    mime_type = mimetypes.guess_type(resolved_asset_path.name)[0]
+    return FileResponse(
+        path=resolved_asset_path,
+        media_type=mime_type or "application/octet-stream",
+        filename=resolved_asset_path.name,
+    )
+
+
+@router.get("/packs/{pack_id}/model-asset")
+async def get_pack_model_asset(pack_id: str) -> FileResponse:
+    """Return the installed model asset declared by one pack manifest."""
+
+    try:
+        resolved_asset_path = get_pack_model_asset_path(pack_id)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
