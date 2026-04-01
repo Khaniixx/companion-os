@@ -48,7 +48,7 @@ import {
   type StreamSettings,
   type StreamState,
 } from "../streamApi";
-import { CompanionAvatar } from "./CompanionAvatar";
+import { CompanionStage } from "./CompanionStage";
 import { MemoryPrivacySettings } from "./MemoryPrivacySettings";
 import { MicroUtilitiesPanel } from "./MicroUtilitiesPanel";
 import { PersonalityPackSettings } from "./PersonalityPackSettings";
@@ -2059,7 +2059,7 @@ export function CompanionWorkspace() {
             <p>{activeStreamEvent.bubble_text}</p>
           </article>
         ) : null}
-        <CompanionAvatar
+        <CompanionStage
           state={companionState}
           displayName={companionTitle}
           avatarConfig={activePack?.avatar}

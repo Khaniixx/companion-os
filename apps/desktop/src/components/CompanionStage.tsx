@@ -1,0 +1,206 @@
+import type { CSSProperties } from "react";
+
+import type { CompanionState } from "../companionStateMachine";
+import type {
+  PackAvatarConfig,
+  PackModelConfig,
+  PackVoiceConfig,
+} from "../packApi";
+import { CompanionAvatar } from "./CompanionAvatar";
+
+type CompanionStageProps = {
+  state: CompanionState;
+  displayName?: string;
+  avatarConfig?: PackAvatarConfig;
+  modelConfig?: PackModelConfig;
+  voiceConfig?: PackVoiceConfig;
+  iconDataUrl?: string | null;
+  presenceAnchor?:
+    | "desktop-right"
+    | "desktop-left"
+    | "active-window-right"
+    | "active-window-left"
+    | "active-window-top-right"
+    | "active-window-top-left"
+    | "workspace";
+  presencePinned?: boolean;
+  presenceTargetTitle?: string | null;
+};
+
+function getAttachmentMode(
+  presencePinned: boolean,
+  presenceAnchor: CompanionStageProps["presenceAnchor"],
+): "attached" | "docked" | "workspace" {
+  if (!presencePinned || presenceAnchor === "workspace" || presenceAnchor === undefined) {
+    return "workspace";
+  }
+  if (
+    presenceAnchor === "active-window-left" ||
+    presenceAnchor === "active-window-right" ||
+    presenceAnchor === "active-window-top-left" ||
+    presenceAnchor === "active-window-top-right"
+  ) {
+    return "attached";
+  }
+  return "docked";
+}
+
+function getAttachmentLabel(
+  attachmentMode: "attached" | "docked" | "workspace",
+  presenceAnchor: CompanionStageProps["presenceAnchor"],
+  presenceTargetTitle: string | null | undefined,
+): string {
+  if (attachmentMode === "attached") {
+    if (presenceTargetTitle) {
+      return presenceAnchor === "active-window-top-left" ||
+        presenceAnchor === "active-window-top-right"
+        ? `Perched on ${presenceTargetTitle}`
+        : `Following ${presenceTargetTitle}`;
+    }
+    return presenceAnchor === "active-window-left"
+      ? "Attached left of active app"
+      : presenceAnchor === "active-window-top-left"
+        ? "Perched on top-left of active app"
+        : presenceAnchor === "active-window-top-right"
+          ? "Perched on top-right of active app"
+          : "Attached right of active app";
+  }
+  if (attachmentMode === "docked") {
+    return presenceAnchor === "desktop-left"
+      ? "Docked to desktop left"
+      : "Docked to desktop right";
+  }
+  return "Resting in workspace";
+}
+
+function getPresenceCue(state: CompanionState): string {
+  if (state === "idle") {
+    return "Quietly nearby";
+  }
+  if (state === "listening") {
+    return "Leaning in";
+  }
+  if (state === "thinking") {
+    return "Holding the thread";
+  }
+  if (state === "talking") {
+    return "With you now";
+  }
+  if (state === "reaction") {
+    return "Perking up";
+  }
+  return "Needs a breath";
+}
+
+function getLive2DHook(
+  state: CompanionState,
+  modelConfig?: PackModelConfig,
+): string {
+  if (state === "idle") {
+    return modelConfig?.idle_hook ?? "idle-loop";
+  }
+  if (state === "talking") {
+    return modelConfig?.speaking_hook ?? "speak-soft";
+  }
+  if (state === "reaction") {
+    return modelConfig?.perched_hook ?? "perk-up";
+  }
+  return modelConfig?.attached_hook ?? "follow-thread";
+}
+
+function getStageBadge(modelConfig?: PackModelConfig): string {
+  return modelConfig?.asset_path ? "Live2D loaded" : "Live2D-ready";
+}
+
+function renderLive2DStage({
+  state,
+  displayName = "Aster",
+  avatarConfig,
+  modelConfig,
+  iconDataUrl,
+  presenceAnchor = "workspace",
+  presencePinned = false,
+  presenceTargetTitle,
+}: CompanionStageProps) {
+  const attachmentMode = getAttachmentMode(presencePinned, presenceAnchor);
+  const attachmentLabel = getAttachmentLabel(
+    attachmentMode,
+    presenceAnchor,
+    presenceTargetTitle,
+  );
+  const presenceCue = getPresenceCue(state);
+  const live2dHook = getLive2DHook(state, modelConfig);
+  const stageLabel = avatarConfig?.stage_label ?? "Live2D stage";
+  const badgeLabel = getStageBadge(modelConfig);
+  const live2dStyle = {
+    "--avatar-accent": avatarConfig?.accent_color ?? "#9db9ff",
+    "--avatar-aura": avatarConfig?.aura_color ?? "#87ead8",
+  } as CSSProperties;
+
+  return (
+    <div
+      className={`live2d-stage live2d-stage--${state} live2d-stage--${attachmentMode}`}
+      aria-live="polite"
+      aria-label={`${displayName} avatar is ${state}`}
+      data-stage-renderer="live2d"
+      data-live2d-hook={live2dHook}
+      data-model-asset={modelConfig?.asset_path ?? "missing"}
+      data-attachment-mode={attachmentMode}
+      data-attachment-label={attachmentLabel}
+      data-stage-label={stageLabel}
+      style={live2dStyle}
+    >
+      <div className="avatar-plaque" aria-hidden="true">
+        <span className="avatar-plaque__label">{stageLabel}</span>
+        <span className="avatar-plaque__badge avatar-plaque__badge--model">
+          {badgeLabel}
+        </span>
+      </div>
+      <div className="avatar-dock" aria-hidden="true">
+        <span className={`avatar-dock__chip avatar-dock__chip--${attachmentMode}`}>
+          {attachmentLabel}
+        </span>
+        <span className={`avatar-dock__rail avatar-dock__rail--${attachmentMode}`} />
+      </div>
+      <div className="live2d-stage__frame" aria-hidden="true">
+        <div className="live2d-stage__sheet" />
+        <div className="live2d-stage__spotlight" />
+        <div className="live2d-stage__portrait">
+          {modelConfig?.preview_image_path || iconDataUrl ? (
+            <img
+              alt=""
+              className="live2d-stage__image"
+              src={iconDataUrl ?? undefined}
+            />
+          ) : (
+            <span className="live2d-stage__fallback">
+              {displayName.charAt(0).toUpperCase()}
+            </span>
+          )}
+        </div>
+        <div className="live2d-stage__scanline live2d-stage__scanline--top" />
+        <div className="live2d-stage__scanline live2d-stage__scanline--bottom" />
+      </div>
+      <div className={`live2d-stage__status live2d-stage__status--${state}`}>
+        <span className="live2d-stage__status-label">Live2D hook</span>
+        <strong>{live2dHook}</strong>
+      </div>
+      <span className="avatar-screen-reader">
+        {displayName} is on the Live2D stage with the {live2dHook} hook active.
+        {` ${attachmentLabel}. ${presenceCue}.`}
+      </span>
+    </div>
+  );
+}
+
+export function CompanionStage(props: CompanionStageProps) {
+  if (
+    props.modelConfig?.renderer === "live2d" &&
+    typeof props.modelConfig.asset_path === "string" &&
+    props.modelConfig.asset_path.trim().length > 0
+  ) {
+    return renderLive2DStage(props);
+  }
+
+  return <CompanionAvatar {...props} />;
+}
