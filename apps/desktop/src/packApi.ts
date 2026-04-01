@@ -100,6 +100,17 @@ export function buildPackAssetUrl(
   return `${API_BASE_URL}/api/packs/${encodedPackId}/${assetType}`;
 }
 
+export function buildPackAssetHashUrl(packId: string, assetHash: string): string {
+  const encodedPackId = encodeURIComponent(packId);
+  const encodedAssetHash = encodeURIComponent(assetHash);
+  return `${API_BASE_URL}/api/packs/${encodedPackId}/assets/by-hash/${encodedAssetHash}`;
+}
+
+export function buildPackLive2DModelUrl(packId: string): string {
+  const encodedPackId = encodeURIComponent(packId);
+  return `${API_BASE_URL}/api/packs/${encodedPackId}/live2d-model`;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, init);
 

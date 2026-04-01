@@ -305,6 +305,8 @@ function renderLive2DStage({
         <div className={`live2d-stage__focus live2d-stage__focus--${state}`} />
         <div className="live2d-stage__portrait">
           <Live2DPixiPreview
+            packId={packId}
+            modelUrl={modelAssetUrl}
             imageUrl={previewImageUrl ?? iconDataUrl}
             accentColor={avatarConfig?.accent_color}
             auraColor={avatarConfig?.aura_color}

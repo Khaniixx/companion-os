@@ -2,12 +2,15 @@
 
 import base64
 import binascii
+import json
 import mimetypes
+import posixpath
+from pathlib import PurePosixPath
 from typing import Any
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field, StringConstraints
 
 from app.core.command_router import route_user_message
@@ -44,6 +47,8 @@ from app.marketplace import (
 from app.personality_packs import (
     PACK_ID_PATTERN,
     get_active_pack_profile,
+    get_pack_asset_path_by_hash,
+    get_pack_live2d_model_manifest,
     get_pack_model_asset_path,
     get_pack_manifest_schema,
     get_pack_preview_image_path,
@@ -520,6 +525,115 @@ class PackSelectionResponse(BaseModel):
 
     active_pack_id: str
     pack: InstalledPackResponse
+
+
+def _rewrite_live2d_asset_path(
+    *,
+    manifest_asset_hashes: dict[str, str],
+    base_manifest_path: str,
+    request: Request,
+    pack_id: str,
+    relative_path: str | None,
+) -> str | None:
+    if relative_path is None:
+        return None
+
+    normalized_relative_path = posixpath.normpath(
+        str(PurePosixPath(base_manifest_path).parent.joinpath(relative_path).as_posix())
+    )
+    if normalized_relative_path.startswith("../"):
+        raise ValueError("Live2D manifest references an asset outside the pack root.")
+    asset_hash = manifest_asset_hashes.get(normalized_relative_path)
+    if asset_hash is None:
+        raise ValueError(
+            f"Live2D manifest references an undeclared asset: {normalized_relative_path}"
+        )
+    return str(
+        request.url_for(
+            "get_pack_asset_by_hash",
+            pack_id=pack_id,
+            asset_hash=asset_hash,
+        )
+    )
+
+
+def _rewrite_live2d_manifest_urls(
+    *,
+    request: Request,
+    pack_id: str,
+    model_asset_path: str,
+    model_manifest: dict[str, object],
+    asset_hashes: dict[str, str],
+) -> dict[str, object]:
+    rewritten_manifest = json.loads(json.dumps(model_manifest))
+    file_references = rewritten_manifest.get("FileReferences")
+    if not isinstance(file_references, dict):
+        return rewritten_manifest
+
+    for key in ("Moc", "Physics", "Pose", "DisplayInfo", "UserData"):
+        current_value = file_references.get(key)
+        if isinstance(current_value, str):
+            file_references[key] = _rewrite_live2d_asset_path(
+                manifest_asset_hashes=asset_hashes,
+                base_manifest_path=model_asset_path,
+                request=request,
+                pack_id=pack_id,
+                relative_path=current_value,
+            )
+
+    textures = file_references.get("Textures")
+    if isinstance(textures, list):
+        file_references["Textures"] = [
+            _rewrite_live2d_asset_path(
+                manifest_asset_hashes=asset_hashes,
+                base_manifest_path=model_asset_path,
+                request=request,
+                pack_id=pack_id,
+                relative_path=texture_path,
+            )
+            if isinstance(texture_path, str)
+            else texture_path
+            for texture_path in textures
+        ]
+
+    expressions = file_references.get("Expressions")
+    if isinstance(expressions, list):
+        for expression in expressions:
+            if isinstance(expression, dict) and isinstance(expression.get("File"), str):
+                expression["File"] = _rewrite_live2d_asset_path(
+                    manifest_asset_hashes=asset_hashes,
+                    base_manifest_path=model_asset_path,
+                    request=request,
+                    pack_id=pack_id,
+                    relative_path=expression["File"],
+                )
+
+    motions = file_references.get("Motions")
+    if isinstance(motions, dict):
+        for group_entries in motions.values():
+            if not isinstance(group_entries, list):
+                continue
+            for entry in group_entries:
+                if not isinstance(entry, dict):
+                    continue
+                if isinstance(entry.get("File"), str):
+                    entry["File"] = _rewrite_live2d_asset_path(
+                        manifest_asset_hashes=asset_hashes,
+                        base_manifest_path=model_asset_path,
+                        request=request,
+                        pack_id=pack_id,
+                        relative_path=entry["File"],
+                    )
+                if isinstance(entry.get("Sound"), str):
+                    entry["Sound"] = _rewrite_live2d_asset_path(
+                        manifest_asset_hashes=asset_hashes,
+                        base_manifest_path=model_asset_path,
+                        request=request,
+                        pack_id=pack_id,
+                        relative_path=entry["Sound"],
+                    )
+
+    return rewritten_manifest
 
 
 class TavernImportRequest(BaseModel):
@@ -1114,6 +1228,51 @@ async def get_pack_model_asset(pack_id: str) -> FileResponse:
         media_type=mime_type or "application/octet-stream",
         filename=resolved_asset_path.name,
     )
+
+
+@router.get(
+    "/packs/{pack_id}/assets/by-hash/{asset_hash}",
+    name="get_pack_asset_by_hash",
+)
+async def get_pack_asset_by_hash(pack_id: str, asset_hash: str) -> FileResponse:
+    """Return one installed pack asset selected by a signed manifest hash."""
+
+    try:
+        resolved_asset_path = get_pack_asset_path_by_hash(pack_id, asset_hash)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    mime_type = mimetypes.guess_type(resolved_asset_path.name)[0]
+    return FileResponse(
+        path=resolved_asset_path,
+        media_type=mime_type or "application/octet-stream",
+        filename=resolved_asset_path.name,
+    )
+
+
+@router.get("/packs/{pack_id}/live2d-model")
+async def get_pack_live2d_model(
+    pack_id: str,
+    request: Request,
+) -> JSONResponse:
+    """Return a Live2D model manifest with manifest-backed asset URLs."""
+
+    try:
+        manifest, model_manifest = get_pack_live2d_model_manifest(pack_id)
+        model_asset_path = manifest.personality.model.asset_path
+        if model_asset_path is None:
+            raise ValueError("Pack does not declare a model asset.")
+        rewritten_manifest = _rewrite_live2d_manifest_urls(
+            request=request,
+            pack_id=manifest.id,
+            model_asset_path=model_asset_path,
+            model_manifest=model_manifest,
+            asset_hashes=manifest.security.asset_hashes,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return JSONResponse(content=rewritten_manifest)
 
 
 @router.post("/packs/install", response_model=PackInstallResponse)

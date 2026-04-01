@@ -889,6 +889,50 @@ def get_pack_model_asset_path(pack_id: str) -> Path:
     if asset_path is None:
         raise ValueError("Pack does not declare a model asset.")
     return _asset_path_for_pack_dir(_pack_dir_for_id(manifest.id), asset_path)
+
+
+def get_pack_asset_path_by_hash(pack_id: str, asset_hash: str) -> Path:
+    """Resolve one installed pack asset by its signed manifest hash."""
+
+    normalized_hash = asset_hash.strip().lower()
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", normalized_hash):
+        raise ValueError("Asset hash must use the sha256:<hex> format.")
+
+    manifest = _find_installed_manifest(pack_id)
+    if manifest is None:
+        raise ValueError(f"Installed pack not found: {pack_id.strip().lower()}")
+
+    for asset_path, declared_hash in manifest.security.asset_hashes.items():
+        if declared_hash == normalized_hash:
+            return _asset_path_for_pack_dir(_pack_dir_for_id(manifest.id), asset_path)
+
+    raise ValueError("Pack does not declare the requested asset hash.")
+
+
+def get_pack_live2d_model_manifest(pack_id: str) -> tuple[PackManifest, dict[str, object]]:
+    """Return the parsed Live2D model manifest JSON for one installed pack."""
+
+    manifest = _find_installed_manifest(pack_id)
+    if manifest is None:
+        raise ValueError(f"Installed pack not found: {pack_id.strip().lower()}")
+
+    if manifest.personality.model.renderer != "live2d":
+        raise ValueError("Pack is not configured for Live2D rendering.")
+
+    model_asset_path = manifest.personality.model.asset_path
+    if model_asset_path is None:
+        raise ValueError("Pack does not declare a model asset.")
+
+    resolved_model_path = _asset_path_for_pack_dir(_pack_dir_for_id(manifest.id), model_asset_path)
+    try:
+        model_manifest = json.loads(resolved_model_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError("Live2D model asset is not valid JSON.") from error
+
+    if not isinstance(model_manifest, dict):
+        raise ValueError("Live2D model asset must decode to an object.")
+
+    return manifest, model_manifest
 def install_pack_archive(*, filename: str, archive_bytes: bytes) -> dict[str, object]:
     """Install a zipped personality pack after validating its schema and assets."""
 

@@ -85,6 +85,22 @@ The companion should eventually support:
 These are embodiment targets, not a requirement to ship every provider or
 renderer at once.
 
+## Current Runtime Rule
+
+For the current desktop implementation:
+
+- the shell avatar remains the stable fallback renderer
+- richer renderers should take over only when the active pack declares them
+- the first richer renderer path is a vendored `pixi-live2d-display` runtime
+  layered behind the existing stage adapter
+- Live2D Cubism Core should be treated as an optional local runtime drop-in at:
+  - `apps/desktop/public/runtime/live2d/live2dcubismcore.min.js`
+- if that core runtime is missing, the desktop shell must fall back cleanly
+  instead of breaking the stage
+
+This keeps the product moving toward richer embodiment without sacrificing the
+one-companion rule or the stable desktop baseline.
+
 ## Product Rule For Adaptation
 
 Companion OS should borrow these ideas without becoming a clone of another
