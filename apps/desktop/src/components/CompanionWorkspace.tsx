@@ -185,7 +185,6 @@ function getCharacterOriginLabel(activePack: InstalledPack | null): string | nul
   }
   return typeof origin === "string" && origin.trim().length > 0 ? origin : null;
 }
-
 function buildCharacterContinuityGuidance(
   activePack: InstalledPack | null,
   companionTitle: string,
