@@ -9,7 +9,6 @@ from typing import Final
 from app.model_catalog import RECOMMENDED_LOCAL_MODEL, SUPPORTED_LOCAL_MODELS
 from app.runtime_paths import runtime_data_path
 
-
 PREFERENCES_FILE = runtime_data_path("preferences.json")
 SUPPORTED_PERMISSIONS: Final[set[str]] = {"open_app", "open_url"}
 DEFAULT_PREFERENCES: Final[dict[str, object]] = {
@@ -27,6 +26,8 @@ DEFAULT_PREFERENCES: Final[dict[str, object]] = {
     "voice": {
         "enabled": True,
         "autoplay_enabled": False,
+        "output_mode": "browser",
+        "rvc_enabled": False,
     },
     "speech_input": {
         "enabled": False,
@@ -77,9 +78,11 @@ def _read_preferences() -> dict[str, object]:
     presence_preferences = loaded_preferences.get("presence", {})
     memory_preferences = loaded_preferences.get("memory", {})
 
-    selected_model = str(
-        ai_preferences.get("selected_model", RECOMMENDED_LOCAL_MODEL)
-    ).strip().lower()
+    selected_model = (
+        str(ai_preferences.get("selected_model", RECOMMENDED_LOCAL_MODEL))
+        .strip()
+        .lower()
+    )
     if selected_model not in SUPPORTED_LOCAL_MODELS:
         selected_model = RECOMMENDED_LOCAL_MODEL
 
@@ -126,9 +129,12 @@ def _read_preferences() -> dict[str, object]:
         },
         "voice": {
             "enabled": bool(voice_preferences.get("enabled", True)),
-            "autoplay_enabled": bool(
-                voice_preferences.get("autoplay_enabled", False)
+            "autoplay_enabled": bool(voice_preferences.get("autoplay_enabled", False)),
+            "output_mode": (
+                str(voice_preferences.get("output_mode", "browser")).strip().lower()
+                or "browser"
             ),
+            "rvc_enabled": bool(voice_preferences.get("rvc_enabled", False)),
         },
         "speech_input": {
             "enabled": bool(speech_input_preferences.get("enabled", False)),
@@ -247,7 +253,7 @@ def set_active_pack_id(pack_id: str | None) -> str | None:
         return normalized_pack_id
 
 
-def get_voice_settings() -> dict[str, bool]:
+def get_voice_settings() -> dict[str, object]:
     """Return persisted voice preferences for the active companion."""
 
     with _preferences_lock:
@@ -258,9 +264,10 @@ def get_voice_settings() -> dict[str, bool]:
 
         return {
             "enabled": bool(voice_preferences.get("enabled", True)),
-            "autoplay_enabled": bool(
-                voice_preferences.get("autoplay_enabled", False)
-            ),
+            "autoplay_enabled": bool(voice_preferences.get("autoplay_enabled", False)),
+            "output_mode": str(voice_preferences.get("output_mode", "browser"))
+            or "browser",
+            "rvc_enabled": bool(voice_preferences.get("rvc_enabled", False)),
         }
 
 
@@ -268,8 +275,19 @@ def update_voice_settings(
     *,
     enabled: bool | None = None,
     autoplay_enabled: bool | None = None,
-) -> dict[str, bool]:
+    output_mode: str | None = None,
+    rvc_enabled: bool | None = None,
+) -> dict[str, object]:
     """Persist voice preferences for the active companion."""
+
+    normalized_output_mode = (
+        None if output_mode is None else output_mode.strip().lower()
+    )
+    if normalized_output_mode is not None and normalized_output_mode not in {
+        "browser",
+        "pack",
+    }:
+        raise ValueError(f"Unsupported voice output mode: {normalized_output_mode}")
 
     with _preferences_lock:
         preferences = _read_preferences()
@@ -282,13 +300,18 @@ def update_voice_settings(
             voice_preferences["enabled"] = enabled
         if autoplay_enabled is not None:
             voice_preferences["autoplay_enabled"] = autoplay_enabled
+        if normalized_output_mode is not None:
+            voice_preferences["output_mode"] = normalized_output_mode
+        if rvc_enabled is not None:
+            voice_preferences["rvc_enabled"] = rvc_enabled
 
         _write_preferences(preferences)
         return {
             "enabled": bool(voice_preferences.get("enabled", True)),
-            "autoplay_enabled": bool(
-                voice_preferences.get("autoplay_enabled", False)
-            ),
+            "autoplay_enabled": bool(voice_preferences.get("autoplay_enabled", False)),
+            "output_mode": str(voice_preferences.get("output_mode", "browser"))
+            or "browser",
+            "rvc_enabled": bool(voice_preferences.get("rvc_enabled", False)),
         }
 
 
@@ -328,9 +351,7 @@ def update_speech_input_settings(
         if enabled is not None:
             speech_input_preferences["enabled"] = enabled
         if transcription_enabled is not None:
-            speech_input_preferences["transcription_enabled"] = (
-                transcription_enabled
-            )
+            speech_input_preferences["transcription_enabled"] = transcription_enabled
 
         speech_input_preferences["provider"] = "browser"
 
@@ -465,7 +486,9 @@ def update_memory_settings(
         if long_term_memory_enabled is not None:
             memory_preferences["long_term_memory_enabled"] = long_term_memory_enabled
         if summary_frequency_messages is not None:
-            memory_preferences["summary_frequency_messages"] = summary_frequency_messages
+            memory_preferences["summary_frequency_messages"] = (
+                summary_frequency_messages
+            )
         if cloud_backup_enabled is not None:
             memory_preferences["cloud_backup_enabled"] = cloud_backup_enabled
 

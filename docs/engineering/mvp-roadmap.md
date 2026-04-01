@@ -224,7 +224,6 @@ Acceptance criteria:
 - continuity can distinguish between a shared user thread and the active pack's
   thread so imported characters feel more distinct over time without pretending
   long-term memory is solved
-  not only Aster with different assets
 
 ### Milestone 5: Reliable Core Actions
 
@@ -239,6 +238,11 @@ Acceptance criteria:
 - browser/search flows work reliably
 - persistence survives restarts
 - permissions remain explicit and understandable
+- voice output has a real provider contract instead of only browser speech,
+  with clear staging for `piper`, `style-bert-vits2`, and optional `rvc`
+  chaining
+- browser playback remains a clear fallback while richer local character-voice
+  engines are still being connected
 
 ### Milestone 6: Experimental Platform Foundations
 

@@ -154,12 +154,20 @@ function createFetchMock(
     voiceStatus: {
       enabled: boolean;
       autoplay_enabled: boolean;
+      output_mode: "browser" | "pack";
       available: boolean;
-      state: "ready" | "muted" | "unavailable";
+      state: "ready" | "muted" | "unavailable" | "configured";
       provider: string;
       voice_id: string;
+      model_id: string | null;
       locale: string | null;
       style: string | null;
+      fallback_provider: string | null;
+      reference_ready: boolean;
+      rvc_enabled: boolean;
+      rvc_model_id: string | null;
+      rvc_ready: boolean;
+      local_engine_ready: boolean;
       display_name: string;
       message: string;
     };
@@ -320,12 +328,20 @@ function createFetchMock(
     options?.voiceStatus ?? {
       enabled: true,
       autoplay_enabled: false,
+      output_mode: "browser" as const,
       available: true,
       state: "ready" as const,
       provider: "local",
       voice_id: "sunrise",
+      model_id: null,
       locale: "en-US",
       style: "warm",
+      fallback_provider: "browser",
+      reference_ready: false,
+      rvc_enabled: false,
+      rvc_model_id: null,
+      rvc_ready: false,
+      local_engine_ready: false,
       display_name: "Sunrise",
       message: "Sunrise's voice is ready when you want it.",
     };
@@ -386,21 +402,40 @@ function createFetchMock(
           const body = JSON.parse(String(init.body)) as {
             enabled?: boolean;
             autoplay_enabled?: boolean;
+            output_mode?: "browser" | "pack";
+            rvc_enabled?: boolean;
           };
           voiceStatus = {
             ...voiceStatus,
             enabled: body.enabled ?? voiceStatus.enabled,
             autoplay_enabled:
               body.autoplay_enabled ?? voiceStatus.autoplay_enabled,
+            output_mode: body.output_mode ?? voiceStatus.output_mode,
+            rvc_enabled:
+              body.rvc_enabled ?? voiceStatus.rvc_enabled,
             state:
               body.enabled === false
                 ? "muted"
+                : (body.output_mode ?? voiceStatus.output_mode) === "pack" &&
+                    !["piper", "style-bert-vits2"].includes(voiceStatus.provider)
+                  ? "unavailable"
+                  : (body.output_mode ?? voiceStatus.output_mode) === "pack"
+                    ? "configured"
                 : voiceStatus.available
                   ? "ready"
                   : "unavailable",
             message:
               body.enabled === false
                 ? `${voiceStatus.display_name}'s voice is resting until you want it.`
+                : (body.output_mode ?? voiceStatus.output_mode) === "pack" &&
+                    !["piper", "style-bert-vits2"].includes(voiceStatus.provider)
+                  ? `${voiceStatus.display_name}'s pack voice path needs a Piper or Style-Bert-VITS2 profile before it can replace the browser fallback.`
+                  : (body.output_mode ?? voiceStatus.output_mode) === "pack" &&
+                      voiceStatus.provider === "style-bert-vits2"
+                    ? `${voiceStatus.display_name}'s Style-Bert-VITS2 character voice is staged with the selected model. Browser playback stays available as the local fallback for now.`
+                    : (body.output_mode ?? voiceStatus.output_mode) === "pack" &&
+                        voiceStatus.provider === "piper"
+                      ? `${voiceStatus.display_name}'s Piper voice path is staged for local playback. Browser playback stays available as the local fallback for now.`
                 : voiceStatus.available
                   ? `${voiceStatus.display_name}'s voice is ready when you want it.`
                   : `${voiceStatus.display_name} does not have a usable voice profile yet.`,
@@ -1772,7 +1807,7 @@ afterEach(() => {
       ),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("local / sunrise / warm / manual playback"),
+      screen.getByText("browser voice / local / sunrise / warm / manual playback"),
     ).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -1957,6 +1992,54 @@ afterEach(() => {
     ).toBeInTheDocument();
   });
 
+  it("surfaces staged pack voice settings for style-bert and rvc chaining", async () => {
+    createFetchMock({
+      voiceStatus: {
+        enabled: true,
+        autoplay_enabled: false,
+        output_mode: "pack",
+        available: true,
+        state: "configured",
+        provider: "style-bert-vits2",
+        voice_id: "momo-style",
+        model_id: "momo-v1",
+        locale: "ja-JP",
+        style: "anime",
+        fallback_provider: "browser",
+        reference_ready: true,
+        rvc_enabled: true,
+        rvc_model_id: "momo-rvc",
+        rvc_ready: true,
+        local_engine_ready: false,
+        display_name: "Sunrise",
+        message:
+          "Sunrise's Style-Bert-VITS2 character voice is staged with a reference sample. RVC conversion will chain on top when the local engine bridge lands.",
+      },
+    });
+    const user = userEvent.setup();
+
+    render(<CompanionWorkspace />);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(screen.getAllByText("Pack voice staged").length).toBeGreaterThan(0);
+    expect(
+      screen.getByText(
+        "pack voice / style-bert-vits2 / momo-style / momo-v1 / anime / rvc chained / manual playback",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Style-Bert-VITS2 is selected for character voice work. Browser playback remains the fallback until the local voice bridge lands.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", {
+        name: "Chain RVC conversion when supported",
+      }),
+    ).toBeChecked();
+  });
+
   it("interrupts voice playback when a mic check starts listening", async () => {
     createFetchMock({
       speechInputStatus: {
@@ -1993,12 +2076,20 @@ afterEach(() => {
       voiceStatus: {
         enabled: true,
         autoplay_enabled: true,
+        output_mode: "browser",
         available: true,
         state: "ready",
         provider: "local",
         voice_id: "sunrise",
+        model_id: null,
         locale: "en-US",
         style: "warm",
+        fallback_provider: "browser",
+        reference_ready: false,
+        rvc_enabled: false,
+        rvc_model_id: null,
+        rvc_ready: false,
+        local_engine_ready: false,
         display_name: "Sunrise",
         message: "Sunrise's voice is ready when you want it.",
       },

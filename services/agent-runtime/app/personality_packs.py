@@ -18,11 +18,17 @@ from pathlib import Path, PurePosixPath
 from threading import Lock
 from typing import Final
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from app.preferences import get_active_pack_id, set_active_pack_id
 from app.runtime_paths import runtime_data_path
-
 
 PACKS_DIR = runtime_data_path("personality_packs")
 PACK_INSTALL_METADATA_NAME = ".install.json"
@@ -92,7 +98,9 @@ def _base64url_decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + padding)
 
 
-def _rsa_verify_rs256(message: bytes, *, modulus: int, exponent: int, signature: bytes) -> bool:
+def _rsa_verify_rs256(
+    message: bytes, *, modulus: int, exponent: int, signature: bytes
+) -> bool:
     if modulus <= 0 or exponent <= 0:
         return False
 
@@ -105,7 +113,12 @@ def _rsa_verify_rs256(message: bytes, *, modulus: int, exponent: int, signature:
     if key_size < len(digest_info) + 11:
         return False
 
-    expected = b"\x00\x01" + (b"\xff" * (key_size - len(digest_info) - 3)) + b"\x00" + digest_info
+    expected = (
+        b"\x00\x01"
+        + (b"\xff" * (key_size - len(digest_info) - 3))
+        + b"\x00"
+        + digest_info
+    )
     signature_value = int.from_bytes(signature, "big")
     recovered = pow(signature_value, exponent, modulus).to_bytes(key_size, "big")
     return recovered == expected
@@ -121,7 +134,9 @@ def _rsa_sign_rs256(message: bytes, *, modulus: int, private_exponent: int) -> b
         + b"\x00"
         + digest_info
     )
-    signature_value = pow(int.from_bytes(encoded_message, "big"), private_exponent, modulus)
+    signature_value = pow(
+        int.from_bytes(encoded_message, "big"), private_exponent, modulus
+    )
     return signature_value.to_bytes(key_size, "big")
 
 
@@ -168,8 +183,36 @@ class VoiceConfig(BaseModel):
 
     provider: str = Field(default="local", min_length=1)
     voice_id: str = Field(default="default", min_length=1)
+    model_id: str | None = None
     locale: str | None = None
     style: str | None = None
+    reference_sample_path: str | None = None
+    fallback_provider: str | None = None
+    rvc_enabled: bool = False
+    rvc_model_id: str | None = None
+    rvc_model_path: str | None = None
+
+    @field_validator(
+        "provider",
+        "voice_id",
+        "model_id",
+        "style",
+        "fallback_provider",
+        "rvc_model_id",
+    )
+    @classmethod
+    def validate_optional_string(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized_value = value.strip()
+        return normalized_value or None
+
+    @field_validator("reference_sample_path", "rvc_model_path")
+    @classmethod
+    def validate_optional_asset_path(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        return _normalized_relative_path(value)
 
 
 class AvatarConfig(BaseModel):
@@ -205,9 +248,7 @@ class AvatarConfig(BaseModel):
 
         normalized_value = value.strip().lower()
         if normalized_value not in AVATAR_PRESENTATION_MODES:
-            raise ValueError(
-                "presentation_mode must be one of: shell, portrait, model"
-            )
+            raise ValueError("presentation_mode must be one of: shell, portrait, model")
         return normalized_value
 
     @field_validator("stage_label")
@@ -340,7 +381,9 @@ class RsaPublicKey(BaseModel):
     @model_validator(mode="after")
     def validate_key_type(self) -> "RsaPublicKey":
         if self.kty != "RSA":
-            raise ValueError("Only RSA public keys are supported in the MVP pack format")
+            raise ValueError(
+                "Only RSA public keys are supported in the MVP pack format"
+            )
         return self
 
 
@@ -379,8 +422,12 @@ class SecurityConfig(BaseModel):
             if not normalized_hash.startswith("sha256:"):
                 raise ValueError("Asset hashes must use the sha256:<hex> format")
             digest = normalized_hash.split(":", 1)[1]
-            if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
-                raise ValueError("Asset hashes must contain a valid 64-character SHA-256 digest")
+            if len(digest) != 64 or any(
+                character not in "0123456789abcdef" for character in digest
+            ):
+                raise ValueError(
+                    "Asset hashes must contain a valid 64-character SHA-256 digest"
+                )
             normalized_hashes[normalized_path] = normalized_hash
         return normalized_hashes
 
@@ -437,7 +484,7 @@ class InstalledPackSummary(BaseModel):
     installed_at: str | None
     system_prompt: str | None = None
     style_rules: list[str] = Field(default_factory=list)
-    voice: dict[str, str | None] = Field(default_factory=dict)
+    voice: dict[str, object] = Field(default_factory=dict)
     avatar: dict[str, object] = Field(default_factory=dict)
     model: dict[str, str | None] = Field(default_factory=dict)
     character_profile: dict[str, object] = Field(default_factory=dict)
@@ -516,8 +563,14 @@ def _default_personality_profile() -> dict[str, object]:
         "voice": {
             "provider": "local",
             "voice_id": "default",
+            "model_id": None,
             "locale": "en-US",
             "style": "gentle",
+            "reference_sample_path": None,
+            "fallback_provider": "browser",
+            "rvc_enabled": False,
+            "rvc_model_id": None,
+            "rvc_model_path": None,
         },
         "avatar": {
             "presentation_mode": "shell",
@@ -594,14 +647,14 @@ def _reject_unsupported_capabilities(manifest: PackManifest) -> None:
     unsupported = sorted(
         {
             capability.id
-            for capability in manifest.capabilities.required + manifest.capabilities.optional
+            for capability in manifest.capabilities.required
+            + manifest.capabilities.optional
             if capability.id not in SUPPORTED_CAPABILITIES
         }
     )
     if unsupported:
         raise ValueError(
-            "Unsupported capabilities requested by this pack: "
-            + ", ".join(unsupported)
+            "Unsupported capabilities requested by this pack: " + ", ".join(unsupported)
         )
 
 
@@ -662,7 +715,9 @@ def _locate_manifest_path(extracted_root: Path) -> Path:
     return manifest_paths[0]
 
 
-def _load_manifest_from_directory(pack_root: Path) -> tuple[PackManifest, dict[str, object]]:
+def _load_manifest_from_directory(
+    pack_root: Path,
+) -> tuple[PackManifest, dict[str, object]]:
     manifest_path = pack_root / "pack.json"
     if not manifest_path.exists():
         raise ValueError("Pack archive is missing pack.json.")
@@ -723,15 +778,14 @@ def _asset_path_for_pack_dir(pack_dir: Path, asset_path: str) -> Path:
     trusted_asset_path = _declared_asset_path(manifest, asset_path)
     resolved_asset_path = Path(
         os.path.realpath(
-            os.path.join(os.fspath(resolved_pack_dir), *PurePosixPath(trusted_asset_path).parts)
+            os.path.join(
+                os.fspath(resolved_pack_dir), *PurePosixPath(trusted_asset_path).parts
+            )
         )
     )
-    if (
-        os.path.commonpath(
-            [os.fspath(resolved_pack_dir), os.fspath(resolved_asset_path)]
-        )
-        != os.fspath(resolved_pack_dir)
-    ):
+    if os.path.commonpath(
+        [os.fspath(resolved_pack_dir), os.fspath(resolved_asset_path)]
+    ) != os.fspath(resolved_pack_dir):
         raise ValueError("Path escapes base directory")
     return resolved_asset_path
 
@@ -899,7 +953,9 @@ def list_installed_packs() -> dict[str, object]:
                 continue
             summaries.append(_summary_from_manifest(manifest))
 
-        if active_pack_id is not None and all(summary.id != active_pack_id for summary in summaries):
+        if active_pack_id is not None and all(
+            summary.id != active_pack_id for summary in summaries
+        ):
             set_active_pack_id(None)
             active_pack_id = None
 
@@ -981,7 +1037,9 @@ def get_pack_asset_path_by_hash(pack_id: str, asset_hash: str) -> Path:
     raise ValueError("Pack does not declare the requested asset hash.")
 
 
-def get_pack_live2d_model_manifest(pack_id: str) -> tuple[PackManifest, dict[str, object]]:
+def get_pack_live2d_model_manifest(
+    pack_id: str,
+) -> tuple[PackManifest, dict[str, object]]:
     """Return the parsed Live2D model manifest JSON for one installed pack."""
 
     manifest = _find_installed_manifest(pack_id)
@@ -995,7 +1053,9 @@ def get_pack_live2d_model_manifest(pack_id: str) -> tuple[PackManifest, dict[str
     if model_asset_path is None:
         raise ValueError("Pack does not declare a model asset.")
 
-    resolved_model_path = _asset_path_for_pack_dir(_pack_dir_for_id(manifest.id), model_asset_path)
+    resolved_model_path = _asset_path_for_pack_dir(
+        _pack_dir_for_id(manifest.id), model_asset_path
+    )
     try:
         model_manifest = json.loads(resolved_model_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as error:
@@ -1005,6 +1065,8 @@ def get_pack_live2d_model_manifest(pack_id: str) -> tuple[PackManifest, dict[str
         raise ValueError("Live2D model asset must decode to an object.")
 
     return manifest, model_manifest
+
+
 def install_pack_archive(*, filename: str, archive_bytes: bytes) -> dict[str, object]:
     """Install a zipped personality pack after validating its schema and assets."""
 
@@ -1090,7 +1152,9 @@ def _parse_png_text_chunks(image_bytes: bytes) -> dict[str, str]:
             compression_flag = remainder[0]
             compression_method = remainder[1]
             language_remainder = remainder[2:]
-            _language_tag, _, translated_remainder = language_remainder.partition(b"\x00")
+            _language_tag, _, translated_remainder = language_remainder.partition(
+                b"\x00"
+            )
             _translated_keyword, _, text_bytes = translated_remainder.partition(b"\x00")
 
             if compression_flag == 1:
@@ -1166,7 +1230,10 @@ def _build_imported_manifest(
         "creator_notes",
         "tags",
     }
-    character_name = str(tavern_payload.get("name", "Imported Companion")).strip() or "Imported Companion"
+    character_name = (
+        str(tavern_payload.get("name", "Imported Companion")).strip()
+        or "Imported Companion"
+    )
     system_prompt_sections = [f"Character name: {character_name}"]
     for label, field_name in (
         ("Description", "description"),
@@ -1214,8 +1281,14 @@ def _build_imported_manifest(
             "voice": {
                 "provider": "local",
                 "voice_id": "default",
+                "model_id": None,
                 "locale": "en-US",
                 "style": "conversational",
+                "reference_sample_path": None,
+                "fallback_provider": "browser",
+                "rvc_enabled": False,
+                "rvc_model_id": None,
+                "rvc_model_path": None,
             },
             "avatar": {
                 "presentation_mode": "portrait",

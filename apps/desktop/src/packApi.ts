@@ -12,8 +12,14 @@ export type PackCapability = {
 export type PackVoiceConfig = {
   provider?: string;
   voice_id?: string;
+  model_id?: string | null;
   locale?: string | null;
   style?: string | null;
+  reference_sample_path?: string | null;
+  fallback_provider?: string | null;
+  rvc_enabled?: boolean;
+  rvc_model_id?: string | null;
+  rvc_model_path?: string | null;
 };
 
 export type PackAvatarConfig = {
