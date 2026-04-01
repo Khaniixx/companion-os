@@ -637,28 +637,36 @@ def _manifest_path_for_pack_dir(pack_dir: Path) -> Path:
     return pack_dir / "pack.json"
 
 
-def _asset_file_map(pack_dir: Path) -> dict[str, Path]:
-    resolved_pack_dir = _resolved_pack_dir_within_root(pack_dir)
-    asset_paths: dict[str, Path] = {}
-    for candidate in resolved_pack_dir.rglob("*"):
-        if not candidate.is_file():
-            continue
-        resolved_candidate = candidate.resolve()
-        if os.path.commonpath(
-            [os.fspath(resolved_pack_dir), os.fspath(resolved_candidate)]
-        ) != os.fspath(resolved_pack_dir):
-            continue
-        relative_candidate = resolved_candidate.relative_to(resolved_pack_dir).as_posix()
-        asset_paths[relative_candidate] = resolved_candidate
-    return asset_paths
+def _read_manifest_for_pack_dir(pack_dir: Path) -> PackManifest:
+    manifest_path = _manifest_path_for_pack_dir(pack_dir)
+    return PackManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
+
+
+def _declared_asset_path(manifest: PackManifest, asset_path: str) -> str:
+    normalized_asset_path = _normalized_relative_path(asset_path)
+    for declared_asset_path in manifest.security.asset_hashes:
+        if declared_asset_path == normalized_asset_path:
+            return declared_asset_path
+    raise ValueError("Referenced asset was not found in the pack.")
 
 
 def _asset_path_for_pack_dir(pack_dir: Path, asset_path: str) -> Path:
-    normalized_asset_path = _normalized_relative_path(asset_path)
-    try:
-        return _asset_file_map(pack_dir)[normalized_asset_path]
-    except KeyError as error:
-        raise ValueError("Referenced asset was not found in the pack.") from error
+    resolved_pack_dir = _resolved_pack_dir_within_root(pack_dir)
+    manifest = _read_manifest_for_pack_dir(resolved_pack_dir)
+    trusted_asset_path = _declared_asset_path(manifest, asset_path)
+    resolved_asset_path = Path(
+        os.path.realpath(
+            os.path.join(os.fspath(resolved_pack_dir), *PurePosixPath(trusted_asset_path).parts)
+        )
+    )
+    if (
+        os.path.commonpath(
+            [os.fspath(resolved_pack_dir), os.fspath(resolved_asset_path)]
+        )
+        != os.fspath(resolved_pack_dir)
+    ):
+        raise ValueError("Path escapes base directory")
+    return resolved_asset_path
 
 
 def get_pack_asset_path(pack_id: str, asset_path: str) -> Path:
