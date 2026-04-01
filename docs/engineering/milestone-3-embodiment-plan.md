@@ -27,6 +27,10 @@ This milestone should materially improve:
 - local custom pack readiness for voice, avatar, and personality identity
 - the sense that the companion lives on the desktop, not only in a chat panel
 
+Reference notes:
+
+- [Milestone 3 Embodiment Reference](./m3-embodiment-reference.md)
+
 ## Current Starting Point
 
 What already exists in `main`:
@@ -209,6 +213,39 @@ Additional validation when embodiment behavior changes:
 - manual Windows desktop smoke pass
 - overlay/pin/click-through behavior check
 - packaging sanity if desktop shell startup changes
+
+## Workflow Guardrails
+
+For Milestone 3 work, prefer the stronger workflow patterns now available in
+the coding environment when they fit the task:
+
+- systematic debugging for native, CI, and embodiment regressions
+- verification before completion for runtime + desktop + native slices
+- review/simplify passes for larger diffs
+- batch-refactor orchestration for cross-layer embodiment work
+
+This milestone should move in larger vertical slices, but those slices still
+need tight validation and disciplined review.
+
+## Embodiment Targets
+
+Milestone 3 should keep moving toward a companion that can eventually support:
+
+- hearing:
+  - browser audio input
+  - talking detection / voice activity detection
+  - speech recognition
+- speaking:
+  - real speech playback
+  - lip-sync-ready speech output hooks
+- body:
+  - richer model renderers
+  - VRM support
+  - Live2D support
+  - blink, look-at, idle eye movement, and model animation hooks
+
+These are staged product targets, not a requirement to ship every provider or
+renderer path at once.
 
 ## Risks To Watch
 

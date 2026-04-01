@@ -23,6 +23,9 @@ core product rule: one persistent companion, multiple states, no separate modes.
 - [Milestone 3 Embodiment Plan](./engineering/milestone-3-embodiment-plan.md)
   This is the execution plan for voice, avatar, desktop presence, and window
   attachment work after Milestone 2.
+- [Milestone 3 Embodiment Reference](./engineering/m3-embodiment-reference.md)
+  This captures the preferred Milestone 3 workflow upgrades, AIRI-inspired
+  embodiment targets, and the external references worth studying or adapting.
 
 ## Testing Expectations
 

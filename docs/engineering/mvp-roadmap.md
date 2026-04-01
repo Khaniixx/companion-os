@@ -44,6 +44,8 @@ These are non-negotiable for the current phase:
 - no dependency on directly shipping copyrighted characters or voices
 - voice, avatar systems, and personality/custom packs treated as base product
   systems, not premium extras or late add-ons
+- speech input, speech output, and richer model renderers treated as planned
+  embodiment systems for the base product, not side experiments
 
 ## Architecture Summary
 
@@ -199,6 +201,8 @@ Acceptance criteria:
   not just a chat window with an avatar
 - voice, avatar, and pack systems are clearly moving toward base-product
   customization instead of one fixed shell
+- the product direction is clearly moving toward hearing, speaking, and richer
+  renderer support such as Live2D or VRM adapters
 - embodiment improvements do not break performance or core flows
 
 ### Milestone 4: Reaction Layer And Liveliness

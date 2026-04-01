@@ -61,3 +61,5 @@ For all code:
 - Treat permissions, safety boundaries, and user control as first-class requirements.
 - Prefer incremental, runnable steps over large unverified rewrites.
 - Keep the installer preview harness as the default workflow for future installer UI refinement so contributors can review the real component states quickly without disturbing the shipping onboarding flow.
+- For Milestone 3 embodiment work, prefer explicit boundaries between speech input, speech output, renderer/model adapters, and native desktop presence behavior instead of mixing them into one large UI layer.
+- When stronger workflow skills are available in the coding environment, prefer systematic debugging, verification-before-completion, review/simplify passes, and batch-refactor orchestration for larger embodiment slices.
