@@ -1580,7 +1580,9 @@ textarea {
   border-radius: 50%;
   background:
     radial-gradient(circle, rgba(255, 255, 255, 0.08), transparent 62%);
-  filter: blur(14px);
+  filter: blur(calc(14px + (var(--live2d-listen-intensity, 0) * 8px)));
+  opacity: calc(0.72 + (var(--live2d-listen-intensity, 0) * 0.28));
+  transition: filter 160ms ease, opacity 160ms ease, background 160ms ease;
 }
 
 .live2d-stage__image {
@@ -1716,6 +1718,12 @@ textarea {
   transform: translateX(var(--live2d-eye-shift, 4px));
 }
 
+.live2d-stage--listening .live2d-stage__eye {
+  transform:
+    translateX(calc(var(--live2d-listen-intensity, 0) * 8px))
+    scaleY(calc(1 + (var(--live2d-listen-intensity, 0) * 0.08)));
+}
+
 .live2d-stage--thinking .live2d-stage__eye {
   transform: translateX(calc(var(--live2d-eye-shift, 3px) * -0.75));
 }
@@ -1752,6 +1760,11 @@ textarea {
 .live2d-stage--speech-active .live2d-stage__focus {
   background:
     radial-gradient(circle, rgba(255, 255, 255, 0.12), transparent 64%);
+}
+
+.live2d-stage--listening .live2d-stage__focus {
+  background:
+    radial-gradient(circle, rgba(129, 240, 214, 0.18), transparent 64%);
 }
 
 .live2d-stage--attached .live2d-stage__frame {

@@ -18,10 +18,16 @@ export type SpeechInputSessionOptions = {
   onStatusChange: (status: SpeechInputSessionStatus) => void;
   onTranscript: (transcript: string) => void;
   onError: (message: string) => void;
+  onActivity?: (activity: SpeechInputActivity) => void;
 };
 
 export type SpeechInputSession = {
   stop: () => void;
+};
+
+export type SpeechInputActivity = {
+  level: number;
+  hearing: boolean;
 };
 
 type SpeechRecognitionAlternativeLike = {
@@ -59,6 +65,7 @@ type BrowserSpeechWindow = Window &
   typeof globalThis & {
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
     SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitAudioContext?: typeof AudioContext;
   };
 
 function getSpeechRecognitionConstructor(
@@ -119,15 +126,67 @@ export async function startSpeechInputSession(
   const mediaStream = await sourceWindow.navigator.mediaDevices.getUserMedia({
     audio: true,
   });
+  const AudioContextConstructor =
+    sourceWindow.AudioContext ?? sourceWindow.webkitAudioContext;
   const RecognitionConstructor = getSpeechRecognitionConstructor(sourceWindow);
   let recognition: SpeechRecognitionInstance | null = null;
   let stopped = false;
+  let audioContext: AudioContext | null = null;
+  let analyserNode: AnalyserNode | null = null;
+  let mediaSource: MediaStreamAudioSourceNode | null = null;
+  let activityTimer: number | null = null;
+
+  const stopActivityTracking = () => {
+    if (activityTimer !== null) {
+      sourceWindow.clearInterval(activityTimer);
+      activityTimer = null;
+    }
+    mediaSource?.disconnect();
+    analyserNode?.disconnect();
+    mediaSource = null;
+    analyserNode = null;
+    void audioContext?.close();
+    audioContext = null;
+    options.onActivity?.({
+      level: 0,
+      hearing: false,
+    });
+  };
 
   const stopTracks = () => {
     mediaStream.getTracks().forEach((track) => {
       track.stop();
     });
   };
+
+  if (typeof AudioContextConstructor === "function") {
+    audioContext = new AudioContextConstructor();
+    analyserNode = audioContext.createAnalyser();
+    analyserNode.fftSize = 1024;
+    analyserNode.smoothingTimeConstant = 0.72;
+    mediaSource = audioContext.createMediaStreamSource(mediaStream);
+    mediaSource.connect(analyserNode);
+
+    const sampleBuffer = new Uint8Array(analyserNode.fftSize);
+    activityTimer = sourceWindow.setInterval(() => {
+      if (stopped || analyserNode === null) {
+        return;
+      }
+
+      analyserNode.getByteTimeDomainData(sampleBuffer);
+      let sumSquares = 0;
+      for (const sample of sampleBuffer) {
+        const normalized = (sample - 128) / 128;
+        sumSquares += normalized * normalized;
+      }
+      const rms = Math.sqrt(sumSquares / sampleBuffer.length);
+      const level = Number(Math.min(1, rms * 8).toFixed(2));
+      options.onActivity?.({
+        level,
+        hearing: level >= 0.08,
+      });
+    }, 120);
+  }
 
   if (RecognitionConstructor === null || options.transcriptionEnabled === false) {
     options.onStatusChange("listening");
@@ -137,6 +196,7 @@ export async function startSpeechInputSession(
           return;
         }
         stopped = true;
+        stopActivityTracking();
         stopTracks();
         options.onStatusChange("idle");
       },
@@ -182,6 +242,10 @@ export async function startSpeechInputSession(
     options.onStatusChange(heardSomething ? "hearing" : "listening");
     const finalTranscript = finalChunks.join(" ").trim();
     if (finalTranscript) {
+      options.onActivity?.({
+        level: 1,
+        hearing: true,
+      });
       options.onTranscript(finalTranscript);
     }
   };
@@ -208,6 +272,7 @@ export async function startSpeechInputSession(
       }
       stopped = true;
       recognition?.stop();
+      stopActivityTracking();
       stopTracks();
       options.onStatusChange("idle");
     },

@@ -32,10 +32,18 @@ const mockStartSpeechOutput = vi.fn(({ onStatusChange, onProgress, text }) => {
     }),
   };
 });
-const mockStartSpeechInputSession = vi.fn(async ({ onStatusChange }) => {
+const mockStartSpeechInputSession = vi.fn(async ({ onStatusChange, onActivity }) => {
   onStatusChange("listening");
+  onActivity?.({
+    level: 0.33,
+    hearing: true,
+  });
   return {
     stop: vi.fn(() => {
+      onActivity?.({
+        level: 0,
+        hearing: false,
+      });
       onStatusChange("idle");
     }),
   };
@@ -1544,15 +1552,25 @@ afterEach(() => {
   it("starts speech input and drops a heard phrase into the composer", async () => {
     createFetchMock();
     const user = userEvent.setup();
-    mockStartSpeechInputSession.mockImplementationOnce(async ({ onStatusChange, onTranscript }) => {
+    mockStartSpeechInputSession.mockImplementationOnce(
+      async ({ onStatusChange, onTranscript, onActivity }) => {
       onStatusChange("listening");
+      onActivity?.({
+        level: 0.41,
+        hearing: true,
+      });
       onTranscript("check the timer");
       return {
         stop: vi.fn(() => {
+          onActivity?.({
+            level: 0,
+            hearing: false,
+          });
           onStatusChange("idle");
         }),
       };
-    });
+      },
+    );
 
     render(<CompanionWorkspace />);
 
@@ -1564,6 +1582,10 @@ afterEach(() => {
     expect(
       screen.getByText('Latest local draft: "check the timer"'),
     ).toBeInTheDocument();
+    expect(screen.getByLabelText("Sunrise avatar is idle")).toHaveAttribute(
+      "data-listening-intensity",
+      "0.41",
+    );
   });
 
   it("reads the latest reply through browser speech playback", async () => {

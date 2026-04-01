@@ -30,6 +30,7 @@ import {
 import {
   getSpeechInputSupport,
   startSpeechInputSession,
+  type SpeechInputActivity,
   type SpeechInputSession,
   type SpeechInputSessionStatus,
   type SpeechInputSupport,
@@ -432,6 +433,11 @@ export function CompanionWorkspace() {
     useState<SpeechInputStatus | null>(null);
   const [speechInputBrowserState, setSpeechInputBrowserState] =
     useState<SpeechInputSessionStatus>("idle");
+  const [speechInputActivity, setSpeechInputActivity] =
+    useState<SpeechInputActivity>({
+      level: 0,
+      hearing: false,
+    });
   const [speechInputDraft, setSpeechInputDraft] = useState<string | null>(null);
   const [isSavingSpeechInput, setIsSavingSpeechInput] = useState(false);
   const [presenceStatus, setPresenceStatus] = useState<PresenceStatus | null>(null);
@@ -1435,6 +1441,10 @@ export function CompanionWorkspace() {
         speechInputSessionRef.current?.stop();
         speechInputSessionRef.current = null;
         setSpeechInputBrowserState("idle");
+        setSpeechInputActivity({
+          level: 0,
+          hearing: false,
+        });
         setSpeechInputDraft(null);
       }
       setSettingsNotice(
@@ -1479,6 +1489,10 @@ export function CompanionWorkspace() {
       speechInputSessionRef.current.stop();
       speechInputSessionRef.current = null;
       setSpeechInputBrowserState("idle");
+      setSpeechInputActivity({
+        level: 0,
+        hearing: false,
+      });
       setSettingsNotice("Speech input stopped listening.");
       return;
     }
@@ -1490,11 +1504,24 @@ export function CompanionWorkspace() {
 
     try {
       setSpeechInputDraft(null);
+      setSpeechInputActivity({
+        level: 0,
+        hearing: false,
+      });
       speechInputSessionRef.current = await startSpeechInputSession({
         locale: speechInputStatus?.locale,
         transcriptionEnabled: speechInputStatus?.transcription_enabled,
         onStatusChange: (status) => {
           setSpeechInputBrowserState(status);
+          if (status === "idle" || status === "unsupported" || status === "error") {
+            setSpeechInputActivity({
+              level: 0,
+              hearing: false,
+            });
+          }
+        },
+        onActivity: (activity) => {
+          setSpeechInputActivity(activity);
         },
         onTranscript: (transcript) => {
           setSpeechInputDraft(transcript);
@@ -1507,6 +1534,10 @@ export function CompanionWorkspace() {
       });
     } catch (error) {
       setSpeechInputBrowserState("error");
+      setSpeechInputActivity({
+        level: 0,
+        hearing: false,
+      });
       const detail =
         error instanceof Error ? error.message : "Unknown speech input start error";
       setSettingsNotice(detail);
@@ -2099,6 +2130,8 @@ export function CompanionWorkspace() {
           presencePinned={desktopPresencePinned}
           presenceTargetTitle={presenceTarget?.title}
           voiceConfig={activePack?.voice}
+          speechInputStatus={speechInputActivity.hearing ? "hearing" : speechInputBrowserState}
+          speechInputLevel={speechInputActivity.level}
           speechPlaybackStatus={speechOutputStatus}
           speechPlaybackProgress={speechOutputProgress.progress}
           speechPlaybackTextLength={speechOutputProgress.textLength}

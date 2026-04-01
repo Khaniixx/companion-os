@@ -113,4 +113,34 @@ describe("CompanionStage", () => {
     expect(screen.getByText("speak-soft")).toBeInTheDocument();
     expect(screen.getByText("speech-follow 0.92")).toBeInTheDocument();
   });
+
+  it("surfaces listening intensity while the Live2D stage is hearing mic activity", () => {
+    render(
+      <CompanionStage
+        state="listening"
+        displayName="Sunrise"
+        avatarConfig={{
+          presentation_mode: "portrait",
+          stage_label: "Pack portrait",
+        }}
+        modelConfig={{
+          renderer: "live2d",
+          asset_path: "models/sunrise.model3.json",
+          idle_hook: "idle-loop",
+          attached_hook: "dock-right",
+          blink_hook: "blink-soft",
+          look_at_hook: "look-at-cursor",
+          idle_eye_hook: "idle-glance",
+        }}
+        speechInputStatus="hearing"
+        speechInputLevel={0.44}
+      />,
+    );
+
+    const stage = screen.getByLabelText("Sunrise avatar is listening");
+    expect(stage).toHaveAttribute("data-speech-input-status", "hearing");
+    expect(stage).toHaveAttribute("data-speech-input-level", "0.44");
+    expect(stage).toHaveAttribute("data-listening-intensity", "0.44");
+    expect(screen.getByText("listen-follow 0.44")).toBeInTheDocument();
+  });
 });

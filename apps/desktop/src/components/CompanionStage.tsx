@@ -6,6 +6,7 @@ import type {
   PackModelConfig,
   PackVoiceConfig,
 } from "../packApi";
+import type { SpeechInputSessionStatus } from "../speechInput";
 import type { SpeechOutputStatus } from "../speechOutput";
 import { CompanionAvatar } from "./CompanionAvatar";
 
@@ -26,6 +27,8 @@ type CompanionStageProps = {
     | "workspace";
   presencePinned?: boolean;
   presenceTargetTitle?: string | null;
+  speechInputStatus?: SpeechInputSessionStatus;
+  speechInputLevel?: number;
   speechPlaybackStatus?: SpeechOutputStatus;
   speechPlaybackProgress?: number;
   speechPlaybackTextLength?: number;
@@ -140,6 +143,26 @@ function getStageBadge(modelConfig?: PackModelConfig): string {
   return modelConfig?.asset_path ? "Live2D loaded" : "Live2D-ready";
 }
 
+function getListeningIntensity(
+  state: CompanionState,
+  speechInputStatus: SpeechInputSessionStatus | undefined,
+  speechInputLevel: number | undefined,
+): number {
+  if (
+    state !== "listening" &&
+    speechInputStatus !== "hearing" &&
+    speechInputStatus !== "listening"
+  ) {
+    return 0;
+  }
+
+  if (speechInputStatus === "hearing") {
+    return Number(Math.max(0.24, Math.min(speechInputLevel ?? 0, 1)).toFixed(2));
+  }
+
+  return Number(Math.max(0.12, Math.min((speechInputLevel ?? 0) * 0.8, 0.4)).toFixed(2));
+}
+
 function getSpeechPlaybackIntensity(
   state: CompanionState,
   speechPlaybackStatus: SpeechOutputStatus | undefined,
@@ -170,6 +193,8 @@ function renderLive2DStage({
   presenceAnchor = "workspace",
   presencePinned = false,
   presenceTargetTitle,
+  speechInputStatus = "idle",
+  speechInputLevel = 0,
   speechPlaybackStatus = "idle",
   speechPlaybackProgress = 0,
   speechPlaybackTextLength = 0,
@@ -187,6 +212,11 @@ function renderLive2DStage({
   const idleEyeHook = getIdleEyeHook(state, modelConfig);
   const stageLabel = avatarConfig?.stage_label ?? "Live2D stage";
   const badgeLabel = getStageBadge(modelConfig);
+  const listeningIntensity = getListeningIntensity(
+    state,
+    speechInputStatus,
+    speechInputLevel,
+  );
   const speechPlaybackIntensity = getSpeechPlaybackIntensity(
     state,
     speechPlaybackStatus,
@@ -201,6 +231,7 @@ function renderLive2DStage({
     "--live2d-mouth-open": `${14 + Math.round(speechPlaybackIntensity * 14)}px`,
     "--live2d-mouth-width": `${44 + Math.round(speechPlaybackIntensity * 12)}px`,
     "--live2d-eye-shift": `${Math.round(speechPlaybackIntensity * 6)}px`,
+    "--live2d-listen-intensity": listeningIntensity.toFixed(2),
   } as CSSProperties;
 
   return (
@@ -217,6 +248,9 @@ function renderLive2DStage({
       data-blink-hook={blinkHook}
       data-look-at-hook={lookAtHook}
       data-idle-eye-hook={idleEyeHook}
+      data-speech-input-status={speechInputStatus}
+      data-speech-input-level={speechInputLevel.toFixed(2)}
+      data-listening-intensity={listeningIntensity.toFixed(2)}
       data-speech-playback-status={speechPlaybackStatus}
       data-speech-playback-progress={speechPlaybackProgress.toFixed(2)}
       data-speech-intensity={speechPlaybackIntensity.toFixed(2)}
@@ -266,6 +300,13 @@ function renderLive2DStage({
         <span>{lookAtHook}</span>
         <span>{idleEyeHook}</span>
         <span>
+          {speechInputStatus === "hearing"
+            ? `listen-follow ${listeningIntensity.toFixed(2)}`
+            : speechInputStatus === "listening"
+              ? `listen-ready ${listeningIntensity.toFixed(2)}`
+              : "listen-idle"}
+        </span>
+        <span>
           {speechPlaybackActive
             ? `speech-follow ${speechPlaybackIntensity.toFixed(2)}`
             : "speech-idle"}
@@ -273,7 +314,7 @@ function renderLive2DStage({
       </div>
       <span className="avatar-screen-reader">
         {displayName} is on the Live2D stage with the {live2dHook} hook active.
-        {` ${blinkHook}. ${lookAtHook}. ${idleEyeHook}. Speech intensity ${speechPlaybackIntensity.toFixed(2)}. ${attachmentLabel}. ${presenceCue}.`}
+        {` ${blinkHook}. ${lookAtHook}. ${idleEyeHook}. Listening intensity ${listeningIntensity.toFixed(2)}. Speech intensity ${speechPlaybackIntensity.toFixed(2)}. ${attachmentLabel}. ${presenceCue}.`}
       </span>
     </div>
   );
