@@ -6,6 +6,10 @@ does not live only in chat history or personal memory.
 Use it alongside the Milestone 3 plan when deciding what to build next, what to
 defer, and which external repos are worth borrowing from.
 
+Pair it with:
+
+- [Reference Adoption Plan](./reference-adoption-plan.md)
+
 ## Why This Exists
 
 Milestone 3 is no longer just about making the current avatar shell prettier.
@@ -159,6 +163,17 @@ Architecture references:
 - [bytedance/deer-flow](https://github.com/bytedance/deer-flow)
   Good later reference for harness/sub-agent orchestration, not an immediate
   dependency for the product.
+
+Additional product references worth adapting selectively:
+
+- [Open-LLM-VTuber/Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber)
+  Strong reference for voice interruption, transparent desktop-pet behavior,
+  and Live2D-first embodied companion loops.
+- [semperai/amica](https://github.com/semperai/amica)
+  Strong reference for VRM pipeline direction and 3D character structure.
+- [elizaOS/eliza](https://github.com/elizaOS/eliza)
+  Strong later reference for connector and plugin boundaries once embodiment is
+  strong enough to support broader integrations.
 
 ## Recommended Near-Term Build Order
 

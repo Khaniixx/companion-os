@@ -30,6 +30,7 @@ This milestone should materially improve:
 Reference notes:
 
 - [Milestone 3 Embodiment Reference](./m3-embodiment-reference.md)
+- [Reference Adoption Plan](./reference-adoption-plan.md)
 
 ## Current Starting Point
 
