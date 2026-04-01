@@ -325,6 +325,7 @@ class VoiceSettingsResponse(BaseModel):
     """Persisted voice readiness and preference state for the active companion."""
 
     enabled: bool
+    autoplay_enabled: bool
     available: bool
     state: str
     provider: str
@@ -339,6 +340,7 @@ class VoiceSettingsUpdateRequest(BaseModel):
     """Partial update payload for persisted voice preferences."""
 
     enabled: bool | None = None
+    autoplay_enabled: bool | None = None
 
 
 class SpeechInputSettingsResponse(BaseModel):
@@ -755,6 +757,7 @@ def _voice_settings_payload() -> VoiceSettingsResponse:
 
     available = bool(provider and voice_id)
     enabled = bool(settings["enabled"])
+    autoplay_enabled = bool(settings["autoplay_enabled"])
 
     if not enabled:
         state = "muted"
@@ -768,6 +771,7 @@ def _voice_settings_payload() -> VoiceSettingsResponse:
 
     return VoiceSettingsResponse(
         enabled=enabled,
+        autoplay_enabled=autoplay_enabled,
         available=available,
         state=state,
         provider=provider,
@@ -1227,7 +1231,10 @@ async def save_voice_preferences(
 ) -> VoiceSettingsResponse:
     """Persist active companion voice preferences."""
 
-    update_voice_settings(enabled=request.enabled)
+    update_voice_settings(
+        enabled=request.enabled,
+        autoplay_enabled=request.autoplay_enabled,
+    )
     return _voice_settings_payload()
 
 

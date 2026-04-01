@@ -26,6 +26,7 @@ DEFAULT_PREFERENCES: Final[dict[str, object]] = {
     },
     "voice": {
         "enabled": True,
+        "autoplay_enabled": False,
     },
     "speech_input": {
         "enabled": False,
@@ -125,6 +126,9 @@ def _read_preferences() -> dict[str, object]:
         },
         "voice": {
             "enabled": bool(voice_preferences.get("enabled", True)),
+            "autoplay_enabled": bool(
+                voice_preferences.get("autoplay_enabled", False)
+            ),
         },
         "speech_input": {
             "enabled": bool(speech_input_preferences.get("enabled", False)),
@@ -254,10 +258,17 @@ def get_voice_settings() -> dict[str, bool]:
 
         return {
             "enabled": bool(voice_preferences.get("enabled", True)),
+            "autoplay_enabled": bool(
+                voice_preferences.get("autoplay_enabled", False)
+            ),
         }
 
 
-def update_voice_settings(*, enabled: bool | None = None) -> dict[str, bool]:
+def update_voice_settings(
+    *,
+    enabled: bool | None = None,
+    autoplay_enabled: bool | None = None,
+) -> dict[str, bool]:
     """Persist voice preferences for the active companion."""
 
     with _preferences_lock:
@@ -269,10 +280,15 @@ def update_voice_settings(*, enabled: bool | None = None) -> dict[str, bool]:
 
         if enabled is not None:
             voice_preferences["enabled"] = enabled
+        if autoplay_enabled is not None:
+            voice_preferences["autoplay_enabled"] = autoplay_enabled
 
         _write_preferences(preferences)
         return {
             "enabled": bool(voice_preferences.get("enabled", True)),
+            "autoplay_enabled": bool(
+                voice_preferences.get("autoplay_enabled", False)
+            ),
         }
 
 

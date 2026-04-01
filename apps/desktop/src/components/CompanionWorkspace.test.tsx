@@ -7,6 +7,21 @@ const mockGetSpeechInputSupport = vi.fn(() => ({
   transcription: true,
   vad: true,
 }));
+const mockGetSpeechOutputSupport = vi.fn(() => ({
+  synthesis: true,
+  voices: true,
+}));
+const mockSpeechOutputStop = vi.fn();
+const mockStartSpeechOutput = vi.fn(({ onStatusChange }) => {
+  onStatusChange("starting");
+  onStatusChange("speaking");
+  return {
+    stop: vi.fn(() => {
+      mockSpeechOutputStop();
+      onStatusChange("idle");
+    }),
+  };
+});
 const mockStartSpeechInputSession = vi.fn(async ({ onStatusChange }) => {
   onStatusChange("listening");
   return {
@@ -19,6 +34,11 @@ const mockStartSpeechInputSession = vi.fn(async ({ onStatusChange }) => {
 vi.mock("../speechInput", () => ({
   getSpeechInputSupport: () => mockGetSpeechInputSupport(),
   startSpeechInputSession: (options: unknown) => mockStartSpeechInputSession(options),
+}));
+
+vi.mock("../speechOutput", () => ({
+  getSpeechOutputSupport: () => mockGetSpeechOutputSupport(),
+  startSpeechOutput: (options: unknown) => mockStartSpeechOutput(options),
 }));
 
 import { COMPANION_PRESENCE_TARGET_EVENT } from "../overlayController";
@@ -114,6 +134,7 @@ function createFetchMock(
     };
     voiceStatus: {
       enabled: boolean;
+      autoplay_enabled: boolean;
       available: boolean;
       state: "ready" | "muted" | "unavailable";
       provider: string;
@@ -279,6 +300,7 @@ function createFetchMock(
   let voiceStatus =
     options?.voiceStatus ?? {
       enabled: true,
+      autoplay_enabled: false,
       available: true,
       state: "ready" as const,
       provider: "local",
@@ -342,10 +364,15 @@ function createFetchMock(
 
       if (url.endsWith("/api/preferences/voice")) {
         if (init?.method === "PUT") {
-          const body = JSON.parse(String(init.body)) as { enabled?: boolean };
+          const body = JSON.parse(String(init.body)) as {
+            enabled?: boolean;
+            autoplay_enabled?: boolean;
+          };
           voiceStatus = {
             ...voiceStatus,
             enabled: body.enabled ?? voiceStatus.enabled,
+            autoplay_enabled:
+              body.autoplay_enabled ?? voiceStatus.autoplay_enabled,
             state:
               body.enabled === false
                 ? "muted"
@@ -1119,24 +1146,42 @@ function createFetchMock(
 }
 
 describe("CompanionWorkspace", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-    mockGetSpeechInputSupport.mockReset();
-    mockGetSpeechInputSupport.mockReturnValue({
-      microphone: true,
-      transcription: true,
-      vad: true,
-    });
-    mockStartSpeechInputSession.mockReset();
-    mockStartSpeechInputSession.mockImplementation(async ({ onStatusChange }) => {
-      onStatusChange("listening");
-      return {
-        stop: vi.fn(() => {
-          onStatusChange("idle");
-        }),
-      };
-    });
+afterEach(() => {
+  vi.restoreAllMocks();
+  window.localStorage.clear();
+  mockGetSpeechInputSupport.mockReset();
+  mockGetSpeechInputSupport.mockReturnValue({
+    microphone: true,
+    transcription: true,
+    vad: true,
   });
+  mockGetSpeechOutputSupport.mockReset();
+  mockGetSpeechOutputSupport.mockReturnValue({
+    synthesis: true,
+    voices: true,
+  });
+  mockSpeechOutputStop.mockReset();
+  mockStartSpeechInputSession.mockReset();
+  mockStartSpeechInputSession.mockImplementation(async ({ onStatusChange }) => {
+    onStatusChange("listening");
+    return {
+      stop: vi.fn(() => {
+        onStatusChange("idle");
+      }),
+    };
+  });
+  mockStartSpeechOutput.mockReset();
+  mockStartSpeechOutput.mockImplementation(({ onStatusChange }) => {
+    onStatusChange("starting");
+    onStatusChange("speaking");
+    return {
+      stop: vi.fn(() => {
+        mockSpeechOutputStop();
+        onStatusChange("idle");
+      }),
+    };
+  });
+});
 
   it("loads persisted chat history and session state on startup", async () => {
     window.localStorage.setItem(
@@ -1363,7 +1408,14 @@ describe("CompanionWorkspace", () => {
         "This pack already carries a Live2D manifest for the next rendering step.",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("local / sunrise / warm")).toBeInTheDocument();
+    expect(
+      screen.getByText("local / sunrise / warm / manual playback"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Browser speech playback is available for quick local voice checks.",
+      ),
+    ).toBeInTheDocument();
     expect(
       screen.getByText(
         "Renderer: live2d / hooks: idle-loop, dock-right, perch-top, speak-soft",
@@ -1400,6 +1452,7 @@ describe("CompanionWorkspace", () => {
     expect(
       screen.getAllByText("Sunrise's voice is resting until you want it.").length,
     ).toBeGreaterThan(0);
+    expect(screen.getByRole("checkbox", { name: "Speak replies automatically" })).not.toBeChecked();
 
     await user.click(
       screen.getByRole("checkbox", { name: "Pin Aster above the desktop" }),
@@ -1503,6 +1556,66 @@ describe("CompanionWorkspace", () => {
     ).toBeInTheDocument();
   });
 
+  it("reads the latest reply through browser speech playback", async () => {
+    createFetchMock();
+    const user = userEvent.setup();
+
+    render(<CompanionWorkspace />);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Read latest reply" }));
+
+    await waitFor(() => {
+      expect(mockStartSpeechOutput).toHaveBeenCalled();
+    });
+    expect(mockStartSpeechOutput).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        text: "I'm here, awake locally, and ready to keep the desk steady with you.",
+        locale: "en-US",
+        voiceHint: "sunrise",
+      }),
+    );
+    expect(
+      screen.getByText("Reading the latest reply in Sunrise's voice."),
+    ).toBeInTheDocument();
+  });
+
+  it("autoplays successful companion replies when voice autoplay is enabled", async () => {
+    createFetchMock({
+      voiceStatus: {
+        enabled: true,
+        autoplay_enabled: true,
+        available: true,
+        state: "ready",
+        provider: "local",
+        voice_id: "sunrise",
+        locale: "en-US",
+        style: "warm",
+        display_name: "Sunrise",
+        message: "Sunrise's voice is ready when you want it.",
+      },
+    });
+    const user = userEvent.setup();
+
+    render(<CompanionWorkspace />);
+
+    await user.type(await screen.findByLabelText(/Write to Sunrise/i), "hello");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(
+      () => {
+        expect(mockStartSpeechOutput).toHaveBeenCalledWith(
+          expect.objectContaining({
+            text: "I am softly gathering my local thoughts. Stay with me a moment and I will pick the thread back up.",
+            locale: "en-US",
+            voiceHint: "sunrise",
+          }),
+        );
+      },
+      { timeout: 3000 },
+    );
+  });
+
   it("renders attachment cues when the companion starts pinned to the active app", async () => {
     createFetchMock({
       presenceStatus: {
@@ -1524,7 +1637,7 @@ describe("CompanionWorkspace", () => {
       ).length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getByLabelText("Sunrise avatar is idle"),
+      screen.getByLabelText(/Sunrise avatar is/i),
     ).toHaveAttribute("data-attachment-mode", "attached");
   });
 

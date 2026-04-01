@@ -35,6 +35,13 @@ import {
   type SpeechInputSupport,
 } from "../speechInput";
 import {
+  getSpeechOutputSupport,
+  startSpeechOutput,
+  type SpeechOutputSession,
+  type SpeechOutputStatus,
+  type SpeechOutputSupport,
+} from "../speechOutput";
+import {
   streamApi,
   type StreamEvent,
   type StreamReactionPreferences,
@@ -72,6 +79,7 @@ type ChatModelStatus = {
 
 type VoiceStatus = {
   enabled: boolean;
+  autoplay_enabled: boolean;
   available: boolean;
   state: "ready" | "muted" | "unavailable";
   provider: string;
@@ -148,6 +156,53 @@ function getAmbientDeskCue(state: CompanionState, companionTitle: string): strin
     return `${companionTitle} perked up at a small cue on the desk.`;
   }
   return `${companionTitle} needs a breath while the local thread settles.`;
+}
+
+function getSpeechOutputReadinessLabel(
+  voiceStatus: VoiceStatus | null,
+  outputStatus: SpeechOutputStatus,
+  support: SpeechOutputSupport,
+): string {
+  if (outputStatus === "speaking") {
+    return "Speaking now";
+  }
+  if (outputStatus === "starting") {
+    return "Starting voice";
+  }
+  if (outputStatus === "error") {
+    return "Voice needs attention";
+  }
+  if (!support.synthesis) {
+    return "Voice unsupported";
+  }
+  return voiceStatus?.state === "muted"
+    ? "Voice muted"
+    : voiceStatus?.state === "unavailable"
+      ? "Voice unavailable"
+      : "Voice ready";
+}
+
+function getSpeechOutputSupportLabel(
+  support: SpeechOutputSupport,
+  voiceStatus: VoiceStatus | null,
+): string {
+  if (!support.synthesis) {
+    return "This desktop shell does not expose browser speech playback here yet.";
+  }
+  if (support.voices) {
+    return "Browser speech playback is available for quick local voice checks.";
+  }
+  return `${voiceStatus?.display_name ?? "Aster"} can speak through the browser voice surface once voices finish loading.`;
+}
+
+function getSpeechOutputIdentityLabel(voiceStatus: VoiceStatus | null): string {
+  if (voiceStatus === null) {
+    return "Checking active voice profile.";
+  }
+
+  return `${voiceStatus.provider} / ${voiceStatus.voice_id}${
+    voiceStatus.style ? ` / ${voiceStatus.style}` : ""
+  } / ${voiceStatus.autoplay_enabled ? "autoplay on" : "manual playback"}`;
 }
 
 function getSpeechInputReadinessLabel(
@@ -364,6 +419,8 @@ export function CompanionWorkspace() {
   const [isSavingModel, setIsSavingModel] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus | null>(null);
   const [isSavingVoice, setIsSavingVoice] = useState(false);
+  const [speechOutputStatus, setSpeechOutputStatus] =
+    useState<SpeechOutputStatus>("idle");
   const [speechInputStatus, setSpeechInputStatus] =
     useState<SpeechInputStatus | null>(null);
   const [speechInputBrowserState, setSpeechInputBrowserState] =
@@ -388,8 +445,11 @@ export function CompanionWorkspace() {
   const seenStreamEventIdsRef = useRef<Set<number>>(new Set());
   const seenUtilityAlertIdsRef = useRef<Set<number>>(new Set());
   const activePackRef = useRef<InstalledPack | null>(null);
+  const voiceStatusRef = useRef<VoiceStatus | null>(null);
+  const speechOutputSessionRef = useRef<SpeechOutputSession | null>(null);
   const speechInputSessionRef = useRef<SpeechInputSession | null>(null);
   const speechInputSupport = useMemo(() => getSpeechInputSupport(), []);
+  const speechOutputSupport = useMemo(() => getSpeechOutputSupport(), []);
   const desktopPresencePinned =
     (presenceStatus?.enabled ?? false) && presenceStatus?.anchor !== "workspace";
   const overlayActive = Boolean(
@@ -428,7 +488,13 @@ export function CompanionWorkspace() {
   }, [activePack]);
 
   useEffect(() => {
+    voiceStatusRef.current = voiceStatus;
+  }, [voiceStatus]);
+
+  useEffect(() => {
     return () => {
+      speechOutputSessionRef.current?.stop();
+      speechOutputSessionRef.current = null;
       speechInputSessionRef.current?.stop();
       speechInputSessionRef.current = null;
     };
@@ -960,12 +1026,21 @@ export function CompanionWorkspace() {
   }
 
   async function persistVoiceEnabled(enabled: boolean): Promise<VoiceStatus> {
+    return persistVoiceSettings({ enabled });
+  }
+
+  async function persistVoiceSettings(
+    payload: Partial<{
+      enabled: boolean;
+      autoplay_enabled: boolean;
+    }>,
+  ): Promise<VoiceStatus> {
     const response = await fetch(`${API_BASE_URL}/api/preferences/voice`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ enabled }),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -1213,6 +1288,9 @@ export function CompanionWorkspace() {
   async function handleToggleVoiceEnabled(enabled: boolean): Promise<void> {
     try {
       setIsSavingVoice(true);
+      if (!enabled) {
+        stopSpeechOutputPlayback();
+      }
       const nextVoiceStatus = await persistVoiceEnabled(enabled);
       setSettingsNotice(
         enabled
@@ -1226,6 +1304,96 @@ export function CompanionWorkspace() {
       setSettingsNotice(`I could not save voice settings yet: ${detail}`);
     } finally {
       setIsSavingVoice(false);
+    }
+  }
+
+  function stopSpeechOutputPlayback(): void {
+    speechOutputSessionRef.current?.stop();
+    speechOutputSessionRef.current = null;
+    setSpeechOutputStatus("idle");
+  }
+
+  async function handleToggleVoiceAutoplay(enabled: boolean): Promise<void> {
+    setIsSavingVoice(true);
+    try {
+      const nextVoiceStatus = await persistVoiceSettings({
+        autoplay_enabled: enabled,
+      });
+      setSettingsNotice(
+        enabled
+          ? `${nextVoiceStatus.display_name} will speak replies automatically when voice is on.`
+          : `${nextVoiceStatus.display_name} will wait for manual playback.`,
+      );
+      appendCompanionMessage(
+        enabled
+          ? `${nextVoiceStatus.display_name} can speak replies automatically when you want the desk to feel more alive.`
+          : `${nextVoiceStatus.display_name} will wait for you to ask before speaking again.`,
+        true,
+      );
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown voice autoplay error";
+      setSettingsNotice(`I could not update voice autoplay: ${detail}`);
+    } finally {
+      setIsSavingVoice(false);
+    }
+  }
+
+  function speakCompanionText(text: string): boolean {
+    if (!voiceStatus?.enabled) {
+      setSettingsNotice("Turn voice on before asking Aster to speak.");
+      return false;
+    }
+
+    if (!speechOutputSupport.synthesis) {
+      setSettingsNotice("Browser speech playback is not available in this shell.");
+      setSpeechOutputStatus("unsupported");
+      return false;
+    }
+
+    stopSpeechOutputPlayback();
+
+    try {
+      speechOutputSessionRef.current = startSpeechOutput({
+        text,
+        locale: voiceStatus.locale,
+        voiceHint: voiceStatus.voice_id,
+        onStatusChange: (status) => {
+          setSpeechOutputStatus(status);
+          if (status === "idle" || status === "unsupported" || status === "error") {
+            speechOutputSessionRef.current = null;
+          }
+        },
+        onError: (message) => {
+          setSettingsNotice(message);
+        },
+      });
+      return true;
+    } catch (error) {
+      setSpeechOutputStatus("error");
+      setSettingsNotice(
+        error instanceof Error
+          ? error.message
+          : "Speech playback stopped before it could begin.",
+      );
+      return false;
+    }
+  }
+
+  async function handleReadLatestReply(): Promise<void> {
+    if (speechOutputStatus === "speaking" || speechOutputStatus === "starting") {
+      stopSpeechOutputPlayback();
+      setSettingsNotice("Voice playback stopped.");
+      return;
+    }
+
+    if (!lastCompanionMessage?.text) {
+      setSettingsNotice("There is no companion reply ready to read back yet.");
+      return;
+    }
+
+    if (speakCompanionText(lastCompanionMessage.text)) {
+      setSettingsNotice(`Reading the latest reply in ${voiceStatus?.display_name ?? "Aster"}'s voice.`);
     }
   }
 
@@ -1565,6 +1733,14 @@ export function CompanionWorkspace() {
         errorCode === "model_missing";
       await waitForPacing(getReplyThinkingDelay(data.assistant_response));
       appendCompanionMessage(data.assistant_response, responseIsPositive);
+      const nextVoiceStatus = voiceStatusRef.current;
+      if (
+        responseIsPositive &&
+        nextVoiceStatus?.enabled &&
+        nextVoiceStatus.autoplay_enabled
+      ) {
+        speakCompanionText(data.assistant_response);
+      }
       if (
         data.action?.type === "chat_reply" &&
         typeof data.action.provider === "string" &&
@@ -1725,19 +1901,16 @@ export function CompanionWorkspace() {
           ? "Model needs download"
         : "Checking local model";
   const voiceReadinessLabel =
-    voiceStatus?.state === "ready"
-      ? "Voice ready"
-      : voiceStatus?.state === "muted"
-        ? "Voice muted"
-        : voiceStatus?.state === "unavailable"
-          ? "Voice unavailable"
-          : "Checking voice";
-  const voiceIdentityLabel =
-    voiceStatus === null
-      ? "Checking active voice profile."
-      : `${voiceStatus.provider} / ${voiceStatus.voice_id}${
-          voiceStatus.style ? ` / ${voiceStatus.style}` : ""
-        }`;
+    getSpeechOutputReadinessLabel(
+      voiceStatus,
+      speechOutputStatus,
+      speechOutputSupport,
+    );
+  const voiceIdentityLabel = getSpeechOutputIdentityLabel(voiceStatus);
+  const speechOutputSupportLabel = getSpeechOutputSupportLabel(
+    speechOutputSupport,
+    voiceStatus,
+  );
   const speechInputReadinessLabel = getSpeechInputReadinessLabel(
     speechInputStatus,
     speechInputSupport,
@@ -2028,6 +2201,18 @@ export function CompanionWorkspace() {
                 <strong>{voiceReadinessLabel}</strong>
                 <p>{voiceStatus?.message ?? "Checking voice readiness for this companion."}</p>
                 <p>{voiceIdentityLabel}</p>
+                <p>{speechOutputSupportLabel}</p>
+                <label className="settings-toggle">
+                  <input
+                    checked={voiceStatus?.autoplay_enabled ?? false}
+                    disabled={isSavingVoice || !(voiceStatus?.enabled ?? false)}
+                    type="checkbox"
+                    onChange={(event) => {
+                      void handleToggleVoiceAutoplay(event.target.checked);
+                    }}
+                  />
+                  <span>Speak replies automatically</span>
+                </label>
                 <button
                   className="settings-action-button"
                   disabled={isSavingVoice}
@@ -2041,6 +2226,25 @@ export function CompanionWorkspace() {
                     : voiceStatus?.enabled === false
                       ? "Turn voice back on"
                       : "Mute voice for now"}
+                </button>
+                <button
+                  className="settings-action-button"
+                  disabled={
+                    isSavingVoice ||
+                    lastCompanionMessage === undefined ||
+                    !(voiceStatus?.enabled ?? false) ||
+                    (!speechOutputSupport.synthesis &&
+                      speechOutputStatus !== "speaking" &&
+                      speechOutputStatus !== "starting")
+                  }
+                  type="button"
+                  onClick={() => {
+                    void handleReadLatestReply();
+                  }}
+                >
+                  {speechOutputStatus === "speaking" || speechOutputStatus === "starting"
+                    ? "Stop voice playback"
+                    : "Read latest reply"}
                 </button>
               </article>
 

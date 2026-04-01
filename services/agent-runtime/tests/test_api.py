@@ -948,6 +948,7 @@ def test_voice_preferences_default_to_ready_with_active_profile() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "enabled": True,
+        "autoplay_enabled": False,
         "available": True,
         "state": "ready",
         "provider": "local",
@@ -970,6 +971,20 @@ def test_voice_preferences_can_be_muted(temp_state_files: Path) -> None:
     assert read_response.json()["state"] == "muted"
     assert read_response.json()["enabled"] is False
     assert '"enabled": false' in temp_state_files.read_text(encoding="utf-8")
+
+
+def test_voice_preferences_can_enable_autoplay(temp_state_files: Path) -> None:
+    update_response = client.put(
+        "/api/preferences/voice",
+        json={"autoplay_enabled": True},
+    )
+    read_response = client.get("/api/preferences/voice")
+
+    assert update_response.status_code == 200
+    assert update_response.json()["autoplay_enabled"] is True
+    assert read_response.status_code == 200
+    assert read_response.json()["autoplay_enabled"] is True
+    assert '"autoplay_enabled": true' in temp_state_files.read_text(encoding="utf-8")
 
 
 def test_speech_input_preferences_default_to_disabled() -> None:
