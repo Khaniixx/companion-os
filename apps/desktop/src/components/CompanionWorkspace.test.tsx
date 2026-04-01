@@ -1155,6 +1155,29 @@ function createFetchMock(
           );
         }
 
+        if (
+          body.message.startsWith('Based on "Recent: local setup", what are the next one or two useful steps')
+        ) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                ok: true,
+                route: "companion-chat",
+                user_message: body.message,
+                assistant_response:
+                  "Start with one small local check-in, then carry the setup thread into the next concrete task.",
+                action: {
+                  type: "chat_reply",
+                  provider: "ollama",
+                  model: "llama3.1:8b-instruct",
+                },
+                loading: false,
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+
         return Promise.reject(new Error(`Unexpected chat message: ${body.message}`));
       }
 
@@ -1297,8 +1320,15 @@ afterEach(() => {
     expect(screen.getByText("6 messages tucked into local memory")).toBeInTheDocument();
     expect(screen.getByText("2 fresh messages still settling")).toBeInTheDocument();
     expect(screen.getByText("Local memory only")).toBeInTheDocument();
+    expect(screen.getByText(/Last tucked away/)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Pick up where we left off" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "What should we do next?" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Turn this into a check-in" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Pack portrait")).toBeInTheDocument();
     expect(screen.getAllByText("Resting in workspace").length).toBeGreaterThan(0);
@@ -1335,6 +1365,40 @@ afterEach(() => {
     expect(
       await screen.findByDisplayValue(
         'Pick up where we left off from "Recent: local setup". Keep this in mind: The user focused on local setup. The companion responded with a calm local reply.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("can ask for the next step directly from the continuity desk", async () => {
+    createFetchMock();
+    const user = userEvent.setup();
+
+    render(<CompanionWorkspace />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "What should we do next?" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Start with one small local check-in, then carry the setup thread into the next concrete task.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("can turn the latest continuity summary into a calmer check-in draft", async () => {
+    createFetchMock();
+    const user = userEvent.setup();
+
+    render(<CompanionWorkspace />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Turn this into a check-in" }),
+    );
+
+    expect(
+      await screen.findByDisplayValue(
+        'Based on "Recent: local setup", give me a calm check-in and help me resume from this thread: The user focused on local setup. The companion responded with a calm local reply.',
       ),
     ).toBeInTheDocument();
   });

@@ -2715,8 +2715,8 @@ textarea {
 }
 
 .continuity-desk__actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -3212,6 +3212,7 @@ textarea {
   .stream-settings__grid,
   .utility-panel__grid,
   .follow-up-desk__actions,
+  .continuity-desk__actions,
   .welcome-desk__list,
   .quick-actions,
   .stage-panel__rail {

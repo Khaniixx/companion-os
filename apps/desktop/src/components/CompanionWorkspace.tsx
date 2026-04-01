@@ -185,6 +185,32 @@ function buildContinuityPrompt(summary: MemorySummary): string {
   return `Pick up where we left off from "${summary.title}". Keep this in mind: ${summary.summary}`;
 }
 
+function buildContinuityCheckInPrompt(summary: MemorySummary): string {
+  return `Based on "${summary.title}", give me a calm check-in and help me resume from this thread: ${summary.summary}`;
+}
+
+function buildContinuityNextStepPrompt(summary: MemorySummary): string {
+  return `Based on "${summary.title}", what are the next one or two useful steps for me right now? Keep this context in mind: ${summary.summary}`;
+}
+
+function getContinuityFreshnessLabel(summary: MemorySummary | null): string | null {
+  if (summary === null) {
+    return null;
+  }
+
+  const updatedAt = new Date(summary.updated_at);
+  if (Number.isNaN(updatedAt.getTime())) {
+    return null;
+  }
+
+  return `Last tucked away ${new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(updatedAt)}`;
+}
+
 function getSpeechOutputReadinessLabel(
   voiceStatus: VoiceStatus | null,
   outputStatus: SpeechOutputStatus,
@@ -2122,6 +2148,7 @@ export function CompanionWorkspace() {
   const continuitySummary =
     latestMemorySummary?.summary ??
     `${companionTitle} will keep the thread steady here as your local summaries build up.`;
+  const continuityFreshnessLabel = getContinuityFreshnessLabel(latestMemorySummary);
 
   return (
     <main
@@ -2650,6 +2677,7 @@ export function CompanionWorkspace() {
                     {latestMemorySummary.message_count} messages tucked into local memory
                   </span>
                 ) : null}
+                {continuityFreshnessLabel ? <span>{continuityFreshnessLabel}</span> : null}
                 {memorySummaryState.pending_message_count > 0 ? (
                   <span>
                     {memorySummaryState.pending_message_count} fresh messages still settling
@@ -2670,6 +2698,32 @@ export function CompanionWorkspace() {
                   }}
                 >
                   Pick up where we left off
+                </button>
+                <button
+                  className="quick-action-button"
+                  disabled={latestMemorySummary === null || isSending}
+                  type="button"
+                  onClick={() => {
+                    if (latestMemorySummary === null) {
+                      return;
+                    }
+                    void submitMessage(buildContinuityNextStepPrompt(latestMemorySummary));
+                  }}
+                >
+                  What should we do next?
+                </button>
+                <button
+                  className="quick-action-button"
+                  disabled={latestMemorySummary === null || isSending}
+                  type="button"
+                  onClick={() => {
+                    if (latestMemorySummary === null) {
+                      return;
+                    }
+                    handleDraftChange(buildContinuityCheckInPrompt(latestMemorySummary));
+                  }}
+                >
+                  Turn this into a check-in
                 </button>
                 <button
                   className="quick-action-button"
