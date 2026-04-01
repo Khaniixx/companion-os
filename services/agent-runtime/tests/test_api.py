@@ -20,22 +20,23 @@ from app.main import app
 from app.tools.open_app import OpenAppResult
 from app.tools.open_url import OpenUrlResult
 
-
 client = TestClient(app)
 
-PNG_1X1_BASE64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Zk2QAAAAASUVORK5CYII="
-)
+PNG_1X1_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Zk2QAAAAASUVORK5CYII="
 
 
 @pytest.fixture(autouse=True)
 def temp_state_files(tmp_path, monkeypatch) -> Path:
     preferences_file = tmp_path / "preferences.json"
     monkeypatch.setattr(preferences, "PREFERENCES_FILE", preferences_file)
-    monkeypatch.setattr(installer, "INSTALLER_STATE_FILE", tmp_path / "installer_state.json")
+    monkeypatch.setattr(
+        installer, "INSTALLER_STATE_FILE", tmp_path / "installer_state.json"
+    )
     monkeypatch.setattr(installer, "OPENCLAW_INSTALL_DIR", tmp_path / "openclaw")
     monkeypatch.setattr(personality_packs, "PACKS_DIR", tmp_path / "personality_packs")
-    monkeypatch.setattr(memory_manager, "MEMORY_STATE_FILE", tmp_path / "memory_state.json")
+    monkeypatch.setattr(
+        memory_manager, "MEMORY_STATE_FILE", tmp_path / "memory_state.json"
+    )
     monkeypatch.setattr(
         micro_utilities,
         "MICRO_UTILITIES_FILE",
@@ -542,10 +543,12 @@ def test_download_step_returns_guided_repair_when_winget_is_missing(
         for instruction in payload["step"]["recovery_instructions"]
     )
     assert any(
-        "Node.js" in instruction for instruction in payload["step"]["recovery_instructions"]
+        "Node.js" in instruction
+        for instruction in payload["step"]["recovery_instructions"]
     )
     assert not any(
-        "Rust" in instruction for instruction in payload["step"]["recovery_instructions"]
+        "Rust" in instruction
+        for instruction in payload["step"]["recovery_instructions"]
     )
 
 
@@ -722,6 +725,7 @@ def test_download_step_returns_retryable_failure_on_timeout(monkeypatch) -> None
         "_dependency_install_command",
         lambda _label: ["fake-installer"],
     )
+
     def fake_run_install_command(
         _command: list[str], *, timeout_seconds: int
     ) -> installer.CommandExecutionResult:
@@ -789,7 +793,9 @@ def test_install_openclaw_requires_ready_environment_and_sets_repair_state(
 
     status_response = client.get("/api/installer/status")
     assert status_response.json()["steps"]["download"]["status"] == "needs_action"
-    assert status_response.json()["steps"]["install-openclaw"]["status"] == "needs_action"
+    assert (
+        status_response.json()["steps"]["install-openclaw"]["status"] == "needs_action"
+    )
 
 
 def test_install_openclaw_creates_local_install_dir(monkeypatch) -> None:
@@ -908,9 +914,7 @@ def test_start_connect_requires_openclaw_install() -> None:
     response = client.post("/api/installer/start-connect")
 
     assert response.status_code == 400
-    assert response.json() == {
-        "detail": "OpenClaw must be installed before starting."
-    }
+    assert response.json() == {"detail": "OpenClaw must be installed before starting."}
 
 
 def test_start_connect_completes_after_install_and_configure(monkeypatch) -> None:
@@ -1108,12 +1112,20 @@ def test_voice_preferences_default_to_ready_with_active_profile() -> None:
     assert response.json() == {
         "enabled": True,
         "autoplay_enabled": False,
+        "output_mode": "browser",
         "available": True,
         "state": "ready",
         "provider": "local",
         "voice_id": "default",
+        "model_id": None,
         "locale": "en-US",
         "style": "gentle",
+        "fallback_provider": "browser",
+        "reference_ready": False,
+        "rvc_enabled": False,
+        "rvc_model_id": None,
+        "rvc_ready": False,
+        "local_engine_ready": False,
         "display_name": "Aster",
         "message": "Aster's voice is ready when you want it.",
     }
@@ -1144,6 +1156,121 @@ def test_voice_preferences_can_enable_autoplay(temp_state_files: Path) -> None:
     assert read_response.status_code == 200
     assert read_response.json()["autoplay_enabled"] is True
     assert '"autoplay_enabled": true' in temp_state_files.read_text(encoding="utf-8")
+
+
+def test_voice_preferences_can_switch_to_pack_output_mode(
+    temp_state_files: Path,
+) -> None:
+    update_response = client.put(
+        "/api/preferences/voice",
+        json={"output_mode": "pack", "rvc_enabled": True},
+    )
+    read_response = client.get("/api/preferences/voice")
+
+    assert update_response.status_code == 200
+    assert update_response.json()["output_mode"] == "pack"
+    assert update_response.json()["state"] == "unavailable"
+    assert update_response.json()["rvc_enabled"] is False
+    assert read_response.status_code == 200
+    assert read_response.json()["output_mode"] == "pack"
+    assert '"output_mode": "pack"' in temp_state_files.read_text(encoding="utf-8")
+
+
+def test_voice_preferences_stage_chatterbox_pack_voice(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.api.get_local_voice_bridge_status",
+        lambda _provider, model_id=None: SimpleNamespace(
+            ready=True,
+            detail=f"{model_id or 'chatterbox'} ready",
+        ),
+    )
+    archive_bytes = make_pack_archive()
+    install_response = client.post(
+        "/api/packs/install",
+        json={
+            "filename": "sunrise-pack.zip",
+            "archive_base64": base64.b64encode(archive_bytes).decode("ascii"),
+        },
+    )
+    assert install_response.status_code == 200
+
+    pack_dir = personality_packs.PACKS_DIR / "sunrise-companion"
+    manifest_path = pack_dir / "pack.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["personality"]["voice"] = {
+        "provider": "chatterbox",
+        "voice_id": "momo-fast",
+        "model_id": "chatterbox-turbo",
+        "locale": "en-US",
+        "style": "expressive",
+        "fallback_provider": "browser",
+    }
+    manifest["security"]["signature"]["value"] = ""
+    _sign_manifest(manifest)
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    update_response = client.put(
+        "/api/preferences/voice",
+        json={"output_mode": "pack"},
+    )
+
+    assert update_response.status_code == 200
+    payload = update_response.json()
+    assert payload["output_mode"] == "pack"
+    assert payload["state"] == "ready"
+    assert payload["provider"] == "chatterbox"
+    assert payload["model_id"] == "chatterbox-turbo"
+    assert (
+        payload["message"]
+        == "Sunrise's Chatterbox voice bridge is ready for local playback."
+    )
+
+
+def test_voice_synthesis_route_returns_chatterbox_audio(monkeypatch) -> None:
+    archive_bytes = make_pack_archive()
+    install_response = client.post(
+        "/api/packs/install",
+        json={
+            "filename": "sunrise-pack.zip",
+            "archive_base64": base64.b64encode(archive_bytes).decode("ascii"),
+        },
+    )
+    assert install_response.status_code == 200
+
+    pack_dir = personality_packs.PACKS_DIR / "sunrise-companion"
+    manifest_path = pack_dir / "pack.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["personality"]["voice"] = {
+        "provider": "chatterbox",
+        "voice_id": "momo-fast",
+        "model_id": "chatterbox-turbo",
+        "locale": "en-US",
+        "style": "expressive",
+        "reference_sample_path": "assets/icon.png",
+        "fallback_provider": "browser",
+    }
+    manifest["security"]["signature"]["value"] = ""
+    _sign_manifest(manifest)
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    client.put("/api/preferences/voice", json={"output_mode": "pack"})
+    monkeypatch.setattr(
+        "app.api.get_local_voice_bridge_status",
+        lambda _provider, model_id=None: SimpleNamespace(
+            ready=True,
+            detail=f"{model_id or 'chatterbox'} ready",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.api.synthesize_chatterbox_speech",
+        lambda **kwargs: (b"RIFFdemo-wav", "audio/wav"),
+    )
+
+    response = client.post("/api/voice/synthesize", json={"text": "hello there"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    assert response.content == b"RIFFdemo-wav"
 
 
 def test_speech_input_preferences_default_to_disabled() -> None:
@@ -1418,7 +1545,10 @@ def test_browser_helper_supports_quoted_search_query(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["url"] == "https://duckduckgo.com/?q=best+local+llm+setup"
-    assert response.json()["message"] == 'Sure, searching the web for "best local llm setup".'
+    assert (
+        response.json()["message"]
+        == 'Sure, searching the web for "best local llm setup".'
+    )
 
 
 def test_browser_helper_rejects_invalid_request() -> None:

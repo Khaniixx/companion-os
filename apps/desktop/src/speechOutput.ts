@@ -9,6 +9,11 @@ export type SpeechOutputOptions = {
   text: string;
   locale?: string | null;
   voiceHint?: string | null;
+  apiBaseUrl?: string;
+  outputMode?: "browser" | "pack";
+  provider?: string | null;
+  fallbackProvider?: string | null;
+  localEngineReady?: boolean;
   onStatusChange: (status: SpeechOutputStatus) => void;
   onError: (message: string) => void;
   onProgress?: (progress: SpeechOutputProgress) => void;
@@ -28,6 +33,7 @@ type BrowserSpeechWindow = Window &
   typeof globalThis & {
     speechSynthesis?: SpeechSynthesis;
     SpeechSynthesisUtterance?: typeof SpeechSynthesisUtterance;
+    Audio?: typeof Audio;
   };
 
 function chooseVoice(
@@ -104,6 +110,154 @@ export function getSpeechOutputSupport(
 export function startSpeechOutput(
   options: SpeechOutputOptions,
   sourceWindow: BrowserSpeechWindow = window as BrowserSpeechWindow,
+): SpeechOutputSession {
+  const shouldUseLocalPackVoice =
+    options.outputMode === "pack" &&
+    options.localEngineReady === true &&
+    options.provider === "chatterbox";
+
+  if (shouldUseLocalPackVoice) {
+    return startLocalPackSpeechOutput(options, sourceWindow);
+  }
+
+  return startBrowserSpeechOutput(options, sourceWindow);
+}
+
+function startLocalPackSpeechOutput(
+  options: SpeechOutputOptions,
+  sourceWindow: BrowserSpeechWindow,
+): SpeechOutputSession {
+  if (typeof sourceWindow.Audio !== "function") {
+    return startBrowserSpeechOutput(options, sourceWindow);
+  }
+
+  const AbortControllerConstructor = sourceWindow.AbortController ?? AbortController;
+  const abortController = new AbortControllerConstructor();
+  const audioElement = new sourceWindow.Audio();
+  let objectUrl: string | null = null;
+  let stopped = false;
+  let delegatedSession: SpeechOutputSession | null = null;
+
+  const cleanup = () => {
+    if (objectUrl !== null) {
+      URL.revokeObjectURL(objectUrl);
+      objectUrl = null;
+    }
+    audioElement.src = "";
+  };
+
+  const stopPlayback = () => {
+    if (stopped) {
+      return;
+    }
+    stopped = true;
+    abortController.abort();
+    delegatedSession?.stop();
+    audioElement.pause();
+    cleanup();
+    options.onStatusChange("idle");
+  };
+
+  audioElement.onplay = () => {
+    if (!stopped) {
+      options.onStatusChange("speaking");
+      options.onProgress?.(toSpeechProgress(options.text, 0));
+    }
+  };
+  audioElement.ontimeupdate = () => {
+    if (stopped) {
+      return;
+    }
+    const duration = Number.isFinite(audioElement.duration) && audioElement.duration > 0
+      ? audioElement.duration
+      : null;
+    if (duration === null) {
+      return;
+    }
+    const progress = Math.max(0, Math.min(audioElement.currentTime / duration, 1));
+    options.onProgress?.(
+      toSpeechProgress(options.text, Math.round(options.text.length * progress)),
+    );
+  };
+  audioElement.onended = () => {
+    if (!stopped) {
+      options.onProgress?.(toSpeechProgress(options.text, options.text.length));
+      cleanup();
+      options.onStatusChange("idle");
+    }
+  };
+  audioElement.onerror = () => {
+    if (!stopped) {
+      cleanup();
+      options.onStatusChange("error");
+      options.onError("Local pack voice playback stopped before the audio could finish.");
+    }
+  };
+
+  options.onStatusChange("starting");
+  void fetch(`${options.apiBaseUrl ?? "http://127.0.0.1:8000"}/api/voice/synthesize`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      text: options.text,
+    }),
+    signal: abortController.signal,
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        const errorPayload = (await response.json().catch(() => null)) as
+          | { detail?: string }
+          | null;
+        throw new Error(
+          errorPayload?.detail ?? `Local voice runtime returned ${response.status}.`,
+        );
+      }
+      return response.blob();
+    })
+    .then(async (blob) => {
+      if (stopped) {
+        return;
+      }
+      objectUrl = URL.createObjectURL(blob);
+      audioElement.src = objectUrl;
+      await audioElement.play();
+    })
+    .catch((error: unknown) => {
+      if (stopped) {
+        return;
+      }
+      cleanup();
+      if (options.fallbackProvider === "browser") {
+        options.onError(
+          error instanceof Error
+            ? `${error.message} Using browser fallback instead.`
+            : "Local pack voice playback failed. Using browser fallback instead.",
+        );
+        delegatedSession = startBrowserSpeechOutput(options, sourceWindow);
+        audioElement.onplay = null;
+        audioElement.ontimeupdate = null;
+        audioElement.onended = null;
+        audioElement.onerror = null;
+        return;
+      }
+      options.onStatusChange("error");
+      options.onError(
+        error instanceof Error
+          ? error.message
+          : "Local pack voice playback failed before it could begin.",
+      );
+    });
+
+  return {
+    stop: stopPlayback,
+  };
+}
+
+function startBrowserSpeechOutput(
+  options: SpeechOutputOptions,
+  sourceWindow: BrowserSpeechWindow,
 ): SpeechOutputSession {
   if (
     typeof sourceWindow.speechSynthesis === "undefined" ||

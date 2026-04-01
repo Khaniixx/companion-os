@@ -13,19 +13,18 @@ import app.personality_packs as personality_packs
 import app.preferences as preferences
 from app.main import app
 
-
 client = TestClient(app)
 
-PNG_1X1_BASE64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Zk2QAAAAASUVORK5CYII="
-)
+PNG_1X1_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Zk2QAAAAASUVORK5CYII="
 
 
 @pytest.fixture(autouse=True)
 def temp_state_files(tmp_path, monkeypatch) -> Path:
     preferences_file = tmp_path / "preferences.json"
     monkeypatch.setattr(preferences, "PREFERENCES_FILE", preferences_file)
-    monkeypatch.setattr(installer, "INSTALLER_STATE_FILE", tmp_path / "installer_state.json")
+    monkeypatch.setattr(
+        installer, "INSTALLER_STATE_FILE", tmp_path / "installer_state.json"
+    )
     monkeypatch.setattr(installer, "OPENCLAW_INSTALL_DIR", tmp_path / "openclaw")
     monkeypatch.setattr(personality_packs, "PACKS_DIR", tmp_path / "personality_packs")
     return tmp_path
@@ -117,7 +116,8 @@ def make_pack_archive(
             "opt_out_flags": ["cloud_backup"],
         },
         "capabilities": {
-            "required": required_capabilities or [
+            "required": required_capabilities
+            or [
                 {
                     "id": "overlay.render",
                     "justification": "Show the selected companion on screen.",
@@ -194,6 +194,8 @@ def test_default_active_pack_profile_is_intentional_when_no_pack_is_selected() -
     assert "default Companion OS companion" in profile["system_prompt"]
     assert "Sound calm, present, and lightly personal." in profile["style_rules"]
     assert profile["voice"]["style"] == "gentle"
+    assert profile["voice"]["fallback_provider"] == "browser"
+    assert profile["voice"]["rvc_enabled"] is False
     assert profile["avatar"]["presentation_mode"] == "shell"
     assert profile["avatar"]["stage_label"] == "Desk shell"
     assert profile["model"]["renderer"] == "shell"
@@ -239,8 +241,12 @@ def test_install_pack_archive_persists_and_auto_selects() -> None:
 
 
 def test_select_active_pack_switches_between_installed_packs() -> None:
-    first_archive = make_pack_archive(pack_id="sunrise-companion", display_name="Sunrise")
-    second_archive = make_pack_archive(pack_id="evening-companion", display_name="Evening")
+    first_archive = make_pack_archive(
+        pack_id="sunrise-companion", display_name="Sunrise"
+    )
+    second_archive = make_pack_archive(
+        pack_id="evening-companion", display_name="Evening"
+    )
 
     first_response = client.post(
         "/api/packs/install",
@@ -295,7 +301,9 @@ def test_install_pack_rejects_unsupported_capability() -> None:
     )
 
     assert response.status_code == 400
-    assert "Unsupported capabilities requested by this pack" in response.json()["detail"]
+    assert (
+        "Unsupported capabilities requested by this pack" in response.json()["detail"]
+    )
 
 
 def test_install_pack_rejects_invalid_signature() -> None:
@@ -317,7 +325,9 @@ def test_install_pack_rejects_invalid_signature() -> None:
         "/api/packs/install",
         json={
             "filename": "tampered-pack.zip",
-            "archive_base64": base64.b64encode(updated_buffer.getvalue()).decode("ascii"),
+            "archive_base64": base64.b64encode(updated_buffer.getvalue()).decode(
+                "ascii"
+            ),
         },
     )
 
@@ -339,18 +349,18 @@ def test_import_tavern_card_creates_pack_with_local_signature(tmp_path: Path) ->
     assert payload["pack"]["display_name"] == "Imported Friend"
     assert payload["pack"]["active"] is True
     assert payload["pack"]["character_profile"]["origin"] == "tavern-card"
-    assert payload["pack"]["character_profile"]["opening_message"] == "Hi. I am here and ready."
+    assert (
+        payload["pack"]["character_profile"]["opening_message"]
+        == "Hi. I am here and ready."
+    )
     assert payload["pack"]["character_profile"]["summary"] == "A calm local companion."
 
-    installed_manifest = (
-        personality_packs.PACKS_DIR / "imported-friend" / "pack.json"
-    )
+    installed_manifest = personality_packs.PACKS_DIR / "imported-friend" / "pack.json"
     assert installed_manifest.exists()
     manifest_payload = json.loads(installed_manifest.read_text(encoding="utf-8"))
-    assert (
-        manifest_payload["extensions"]["tavern_card"]["unknown_fields"]["unknown_custom_field"]
-        == {"mood": "gentle"}
-    )
+    assert manifest_payload["extensions"]["tavern_card"]["unknown_fields"][
+        "unknown_custom_field"
+    ] == {"mood": "gentle"}
 
 
 def test_import_tavern_card_normalizes_non_ascii_pack_id() -> None:

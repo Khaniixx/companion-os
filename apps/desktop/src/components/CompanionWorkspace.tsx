@@ -92,12 +92,20 @@ type ChatModelStatus = {
 type VoiceStatus = {
   enabled: boolean;
   autoplay_enabled: boolean;
+  output_mode: "browser" | "pack";
   available: boolean;
-  state: "ready" | "muted" | "unavailable";
+  state: "ready" | "muted" | "unavailable" | "configured";
   provider: string;
   voice_id: string;
+  model_id: string | null;
   locale: string | null;
   style: string | null;
+  fallback_provider: string | null;
+  reference_ready: boolean;
+  rvc_enabled: boolean;
+  rvc_model_id: string | null;
+  rvc_ready: boolean;
+  local_engine_ready: boolean;
   display_name: string;
   message: string;
 };
@@ -395,6 +403,12 @@ function getSpeechOutputReadinessLabel(
   if (!support.synthesis) {
     return "Voice unsupported";
   }
+  if (voiceStatus?.state === "configured") {
+    return "Pack voice staged";
+  }
+  if (voiceStatus?.output_mode === "pack" && voiceStatus?.state === "unavailable") {
+    return "Pack voice unavailable";
+  }
   return voiceStatus?.state === "muted"
     ? "Voice muted"
     : voiceStatus?.state === "unavailable"
@@ -406,6 +420,24 @@ function getSpeechOutputSupportLabel(
   support: SpeechOutputSupport,
   voiceStatus: VoiceStatus | null,
 ): string {
+  if (voiceStatus?.output_mode === "pack") {
+    if (voiceStatus.provider === "style-bert-vits2") {
+      return voiceStatus.local_engine_ready
+        ? "Style-Bert-VITS2 is connected for local character voice playback."
+        : "Style-Bert-VITS2 is selected for character voice work. Browser playback remains the fallback until the local voice bridge lands.";
+    }
+    if (voiceStatus.provider === "chatterbox") {
+      return voiceStatus.local_engine_ready
+        ? "Chatterbox is connected for low-latency local character voice playback."
+        : "Chatterbox is selected as the low-latency local pack voice path. Browser playback remains the fallback until the local voice bridge lands.";
+    }
+    if (voiceStatus.provider === "piper") {
+      return voiceStatus.local_engine_ready
+        ? "Piper is connected for local pack voice playback."
+        : "Piper is selected as the local pack voice path. Browser playback remains the fallback until the local voice bridge lands.";
+    }
+    return "Pack voice mode is selected, but this pack still needs a Piper, Chatterbox, or Style-Bert-VITS2 profile.";
+  }
   if (!support.synthesis) {
     return "This desktop shell does not expose browser speech playback here yet.";
   }
@@ -420,9 +452,16 @@ function getSpeechOutputIdentityLabel(voiceStatus: VoiceStatus | null): string {
     return "Checking active voice profile.";
   }
 
-  return `${voiceStatus.provider} / ${voiceStatus.voice_id}${
+  const modeLabel =
+    voiceStatus.output_mode === "pack" ? "pack voice" : "browser voice";
+  const modelLabel = voiceStatus.model_id ? ` / ${voiceStatus.model_id}` : "";
+  const rvcLabel = voiceStatus.rvc_enabled
+    ? ` / rvc ${voiceStatus.rvc_ready ? "chained" : "waiting"}` 
+    : "";
+
+  return `${modeLabel} / ${voiceStatus.provider} / ${voiceStatus.voice_id}${modelLabel}${
     voiceStatus.style ? ` / ${voiceStatus.style}` : ""
-  } / ${voiceStatus.autoplay_enabled ? "autoplay on" : "manual playback"}`;
+  }${rvcLabel} / ${voiceStatus.autoplay_enabled ? "autoplay on" : "manual playback"}`;
 }
 
 function getSpeechInputReadinessLabel(
@@ -1301,6 +1340,8 @@ export function CompanionWorkspace() {
     payload: Partial<{
       enabled: boolean;
       autoplay_enabled: boolean;
+      output_mode: "browser" | "pack";
+      rvc_enabled: boolean;
     }>,
   ): Promise<VoiceStatus> {
     const response = await fetch(`${API_BASE_URL}/api/preferences/voice`, {
@@ -1634,6 +1675,48 @@ export function CompanionWorkspace() {
     }
   }
 
+  async function handleChangeVoiceOutputMode(
+    outputMode: "browser" | "pack",
+  ): Promise<void> {
+    setIsSavingVoice(true);
+    try {
+      const nextVoiceStatus = await persistVoiceSettings({
+        output_mode: outputMode,
+      });
+      setSettingsNotice(
+        outputMode === "pack"
+          ? `${nextVoiceStatus.display_name} will prefer the pack voice pipeline when it is ready.`
+          : `${nextVoiceStatus.display_name} will keep using browser playback for now.`,
+      );
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown voice mode error";
+      setSettingsNotice(`I could not switch the voice pipeline yet: ${detail}`);
+    } finally {
+      setIsSavingVoice(false);
+    }
+  }
+
+  async function handleToggleVoiceRvc(enabled: boolean): Promise<void> {
+    setIsSavingVoice(true);
+    try {
+      const nextVoiceStatus = await persistVoiceSettings({
+        rvc_enabled: enabled,
+      });
+      setSettingsNotice(
+        enabled
+          ? `${nextVoiceStatus.display_name} will chain RVC when a compatible local model is available.`
+          : `${nextVoiceStatus.display_name} will stay on the base voice path without RVC conversion.`,
+      );
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown RVC voice error";
+      setSettingsNotice(`I could not update the RVC chain yet: ${detail}`);
+    } finally {
+      setIsSavingVoice(false);
+    }
+  }
+
   function speakCompanionText(text: string): boolean {
     if (!voiceStatus?.enabled) {
       setSettingsNotice("Turn voice on before asking Aster to speak.");
@@ -1655,10 +1738,24 @@ export function CompanionWorkspace() {
     });
 
     try {
+      if (voiceStatus.output_mode === "pack" && !voiceStatus.local_engine_ready) {
+        setSettingsNotice(
+          voiceStatus.provider === "style-bert-vits2" ||
+          voiceStatus.provider === "piper" ||
+          voiceStatus.provider === "chatterbox"
+            ? `Using browser fallback while ${voiceStatus.display_name}'s pack voice engine is still staging.`
+            : `${voiceStatus.display_name}'s pack voice path is not ready yet, so the browser fallback is handling this reply.`,
+        );
+      }
       speechOutputSessionRef.current = startSpeechOutput({
         text,
+        apiBaseUrl: API_BASE_URL,
         locale: voiceStatus.locale,
         voiceHint: voiceStatus.voice_id,
+        outputMode: voiceStatus.output_mode,
+        provider: voiceStatus.provider,
+        fallbackProvider: voiceStatus.fallback_provider,
+        localEngineReady: voiceStatus.local_engine_ready,
         onStatusChange: (status) => {
           setSpeechOutputStatus(status);
           if (status === "idle" || status === "unsupported" || status === "error") {
@@ -1707,7 +1804,11 @@ export function CompanionWorkspace() {
     }
 
     if (speakCompanionText(lastCompanionMessage.text)) {
-      setSettingsNotice(`Reading the latest reply in ${voiceStatus?.display_name ?? "Aster"}'s voice.`);
+      setSettingsNotice(
+        voiceStatus?.output_mode === "pack" && !voiceStatus.local_engine_ready
+          ? `Reading the latest reply through the browser fallback while ${voiceStatus.display_name}'s pack voice path is still staging.`
+          : `Reading the latest reply in ${voiceStatus?.display_name ?? "Aster"}'s voice.`,
+      );
     }
   }
 
@@ -2576,6 +2677,21 @@ export function CompanionWorkspace() {
                 <p>{voiceStatus?.message ?? "Checking voice readiness for this companion."}</p>
                 <p>{voiceIdentityLabel}</p>
                 <p>{speechOutputSupportLabel}</p>
+                <label className="settings-field">
+                  <span className="settings-field__label">Voice pipeline</span>
+                  <select
+                    value={voiceStatus?.output_mode ?? "browser"}
+                    disabled={isSavingVoice}
+                    onChange={(event) => {
+                      void handleChangeVoiceOutputMode(
+                        event.target.value === "pack" ? "pack" : "browser",
+                      );
+                    }}
+                  >
+                    <option value="browser">Browser fallback</option>
+                    <option value="pack">Pack voice pipeline</option>
+                  </select>
+                </label>
                 <label className="settings-toggle">
                   <input
                     checked={voiceStatus?.autoplay_enabled ?? false}
@@ -2586,6 +2702,17 @@ export function CompanionWorkspace() {
                     }}
                   />
                   <span>Speak replies automatically</span>
+                </label>
+                <label className="settings-toggle">
+                  <input
+                    checked={voiceStatus?.rvc_enabled ?? false}
+                    disabled={isSavingVoice || voiceStatus?.output_mode !== "pack"}
+                    type="checkbox"
+                    onChange={(event) => {
+                      void handleToggleVoiceRvc(event.target.checked);
+                    }}
+                  />
+                  <span>Chain RVC conversion when supported</span>
                 </label>
                 <button
                   className="settings-action-button"

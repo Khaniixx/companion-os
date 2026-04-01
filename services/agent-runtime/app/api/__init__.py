@@ -10,7 +10,7 @@ from typing import Any
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field, StringConstraints
 
 from app.core.command_router import route_user_message
@@ -53,6 +53,7 @@ from app.personality_packs import (
     get_pack_model_asset_path,
     get_pack_manifest_schema,
     get_pack_preview_image_path,
+    get_pack_voice_reference_path,
     import_tavern_card,
     install_pack_archive,
     list_installed_packs,
@@ -81,6 +82,11 @@ from app.stream_integration import (
     list_recent_stream_events,
     process_twitch_webhook,
     update_stream_settings,
+)
+from app.voice_bridge import (
+    VoiceBridgeError,
+    get_local_voice_bridge_status,
+    synthesize_chatterbox_speech,
 )
 
 router = APIRouter()
@@ -335,12 +341,20 @@ class VoiceSettingsResponse(BaseModel):
 
     enabled: bool
     autoplay_enabled: bool
+    output_mode: str
     available: bool
     state: str
     provider: str
     voice_id: str
+    model_id: str | None
     locale: str | None
     style: str | None
+    fallback_provider: str | None
+    reference_ready: bool
+    rvc_enabled: bool
+    rvc_model_id: str | None
+    rvc_ready: bool
+    local_engine_ready: bool
     display_name: str
     message: str
 
@@ -350,6 +364,16 @@ class VoiceSettingsUpdateRequest(BaseModel):
 
     enabled: bool | None = None
     autoplay_enabled: bool | None = None
+    output_mode: str | None = None
+    rvc_enabled: bool | None = None
+
+
+class VoiceSynthesisRequest(BaseModel):
+    """Text payload used for local pack voice synthesis."""
+
+    text: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        ..., min_length=1
+    )
 
 
 class SpeechInputSettingsResponse(BaseModel):
@@ -476,7 +500,7 @@ class InstalledPackResponse(BaseModel):
     installed_at: str | None
     system_prompt: str | None = None
     style_rules: list[str] = Field(default_factory=list)
-    voice: dict[str, str | None] = Field(default_factory=dict)
+    voice: dict[str, object] = Field(default_factory=dict)
     avatar: dict[str, object] = Field(default_factory=dict)
     model: dict[str, str | None] = Field(default_factory=dict)
     character_profile: dict[str, object] = Field(default_factory=dict)
@@ -591,15 +615,17 @@ def _rewrite_live2d_manifest_urls(
     textures = file_references.get("Textures")
     if isinstance(textures, list):
         file_references["Textures"] = [
-            _rewrite_live2d_asset_path(
-                manifest_asset_hashes=asset_hashes,
-                base_manifest_path=model_asset_path,
-                request=request,
-                pack_id=pack_id,
-                relative_path=texture_path,
+            (
+                _rewrite_live2d_asset_path(
+                    manifest_asset_hashes=asset_hashes,
+                    base_manifest_path=model_asset_path,
+                    request=request,
+                    pack_id=pack_id,
+                    relative_path=texture_path,
+                )
+                if isinstance(texture_path, str)
+                else texture_path
             )
-            if isinstance(texture_path, str)
-            else texture_path
             for texture_path in textures
         ]
 
@@ -871,14 +897,48 @@ def _voice_settings_payload() -> VoiceSettingsResponse:
 
     provider = str(voice_metadata.get("provider", "local")).strip() or "local"
     voice_id = str(voice_metadata.get("voice_id", "default")).strip() or "default"
+    model_id_value = voice_metadata.get("model_id")
+    model_id = (
+        str(model_id_value).strip() or None if model_id_value is not None else None
+    )
     locale_value = voice_metadata.get("locale")
     locale = str(locale_value).strip() or None if locale_value is not None else None
     style_value = voice_metadata.get("style")
     style = str(style_value).strip() or None if style_value is not None else None
-    display_name = str(
-        active_profile.get("display_name", "Aster")
-    ).strip() or "Aster"
+    fallback_provider_value = voice_metadata.get("fallback_provider")
+    fallback_provider = (
+        str(fallback_provider_value).strip() or None
+        if fallback_provider_value is not None
+        else None
+    )
+    reference_sample_path = voice_metadata.get("reference_sample_path")
+    reference_ready = (
+        isinstance(reference_sample_path, str) and reference_sample_path.strip() != ""
+    )
+    pack_rvc_enabled = bool(voice_metadata.get("rvc_enabled", False))
+    rvc_model_id_value = voice_metadata.get("rvc_model_id")
+    rvc_model_id = (
+        str(rvc_model_id_value).strip() or None
+        if rvc_model_id_value is not None
+        else None
+    )
+    rvc_model_path = voice_metadata.get("rvc_model_path")
+    rvc_ready = bool(
+        rvc_model_id
+        or (isinstance(rvc_model_path, str) and rvc_model_path.strip() != "")
+    )
+    display_name = str(active_profile.get("display_name", "Aster")).strip() or "Aster"
 
+    output_mode = str(settings.get("output_mode", "browser")).strip() or "browser"
+    persisted_rvc_enabled = bool(settings.get("rvc_enabled", False))
+    rvc_enabled = pack_rvc_enabled and persisted_rvc_enabled
+    supports_pack_pipeline = provider in {"piper", "style-bert-vits2", "chatterbox"}
+    local_engine_status = (
+        get_local_voice_bridge_status(provider, model_id=model_id)
+        if supports_pack_pipeline
+        else None
+    )
+    local_engine_ready = local_engine_status.ready if local_engine_status else False
     available = bool(provider and voice_id)
     enabled = bool(settings["enabled"])
     autoplay_enabled = bool(settings["autoplay_enabled"])
@@ -886,6 +946,41 @@ def _voice_settings_payload() -> VoiceSettingsResponse:
     if not enabled:
         state = "muted"
         message = f"{display_name}'s voice is resting until you want it."
+    elif output_mode == "pack" and supports_pack_pipeline:
+        state = "ready" if local_engine_ready else "configured"
+        if provider == "style-bert-vits2":
+            if reference_ready:
+                message = f"{display_name}'s Style-Bert-VITS2 character voice is staged with a reference sample."
+            elif model_id:
+                message = f"{display_name}'s Style-Bert-VITS2 character voice is staged with the selected model."
+            else:
+                message = f"{display_name}'s Style-Bert-VITS2 path is selected, but it still needs a local model or reference sample."
+        elif provider == "chatterbox":
+            message = (
+                f"{display_name}'s Chatterbox voice bridge is ready for local playback."
+                if local_engine_ready
+                else f"{display_name}'s Chatterbox voice path is staged for local playback."
+            )
+        else:
+            message = (
+                f"{display_name}'s Piper voice bridge is ready for local playback."
+                if local_engine_ready
+                else f"{display_name}'s Piper voice path is staged for local playback."
+            )
+
+        if rvc_enabled:
+            if rvc_ready:
+                message = f"{message} RVC conversion will chain on top when the local engine bridge lands."
+            else:
+                message = f"{message} RVC chaining is enabled but still needs a model."
+        elif not local_engine_ready:
+            message = f"{message} Browser playback stays available as the local fallback for now."
+    elif output_mode == "pack":
+        state = "unavailable"
+        message = (
+            f"{display_name}'s pack voice path needs a Piper, Chatterbox, or "
+            "Style-Bert-VITS2 profile before it can replace the browser fallback."
+        )
     elif available:
         state = "ready"
         message = f"{display_name}'s voice is ready when you want it."
@@ -896,12 +991,20 @@ def _voice_settings_payload() -> VoiceSettingsResponse:
     return VoiceSettingsResponse(
         enabled=enabled,
         autoplay_enabled=autoplay_enabled,
+        output_mode=output_mode,
         available=available,
         state=state,
         provider=provider,
         voice_id=voice_id,
+        model_id=model_id,
         locale=locale,
         style=style,
+        fallback_provider=fallback_provider,
+        reference_ready=reference_ready,
+        rvc_enabled=rvc_enabled,
+        rvc_model_id=rvc_model_id,
+        rvc_ready=rvc_ready,
+        local_engine_ready=local_engine_ready,
         display_name=display_name,
         message=message,
     )
@@ -924,9 +1027,7 @@ def _speech_input_settings_payload() -> SpeechInputSettingsResponse:
 
     if enabled:
         state = "ready"
-        message = (
-            f"{display_name} is ready to listen through the browser mic when you start it."
-        )
+        message = f"{display_name} is ready to listen through the browser mic when you start it."
     else:
         state = "disabled"
         message = f"{display_name}'s ears are resting until you turn speech input on."
@@ -1439,8 +1540,69 @@ async def save_voice_preferences(
     update_voice_settings(
         enabled=request.enabled,
         autoplay_enabled=request.autoplay_enabled,
+        output_mode=request.output_mode,
+        rvc_enabled=request.rvc_enabled,
     )
     return _voice_settings_payload()
+
+
+@router.post("/voice/synthesize")
+async def synthesize_voice_output(request: VoiceSynthesisRequest) -> Response:
+    """Generate audio for the active pack voice when a local bridge exists."""
+
+    voice_settings = _voice_settings_payload()
+    if not voice_settings.enabled:
+        raise HTTPException(status_code=409, detail="Voice output is muted right now.")
+    if voice_settings.output_mode != "pack":
+        raise HTTPException(
+            status_code=409,
+            detail="Pack voice output is not selected for this companion.",
+        )
+    if not voice_settings.local_engine_ready:
+        raise HTTPException(
+            status_code=503,
+            detail="The selected local pack voice engine is not ready yet.",
+        )
+
+    active_pack_id = get_active_pack_id()
+    if active_pack_id is None:
+        raise HTTPException(
+            status_code=409,
+            detail="No active pack is selected for local voice playback.",
+        )
+
+    active_profile = get_active_pack_profile()
+    voice_metadata = active_profile.get("voice", {})
+    if not isinstance(voice_metadata, dict):
+        voice_metadata = {}
+
+    provider = str(voice_metadata.get("provider", "local")).strip().lower() or "local"
+    reference_sample_path = None
+    if voice_settings.reference_ready:
+        try:
+            reference_sample_path = str(get_pack_voice_reference_path(active_pack_id))
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    try:
+        if provider == "chatterbox":
+            audio_bytes, media_type = synthesize_chatterbox_speech(
+                text=request.text,
+                voice_id=voice_settings.voice_id,
+                model_id=voice_settings.model_id,
+                locale=voice_settings.locale,
+                style=voice_settings.style,
+                reference_sample_path=reference_sample_path,
+            )
+        else:
+            raise HTTPException(
+                status_code=501,
+                detail=f"Local voice synthesis is not connected for provider: {provider}",
+            )
+    except VoiceBridgeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+    return Response(content=audio_bytes, media_type=media_type)
 
 
 @router.get(
