@@ -842,6 +842,15 @@ function createFetchMock(
                     perched_hook: "perch-top",
                     speaking_hook: "speak-soft",
                   },
+                  character_profile: {
+                    origin: "tavern-card",
+                    summary:
+                      "A bright early-day companion who keeps the desk calm and the next step practical.",
+                    scenario: "Already nearby on the desk, ready to ease into the next task.",
+                    opening_message: "Morning. I kept the thread warm for you.",
+                    tags: ["gentle", "cozy"],
+                    style_notes: ["Keep one persistent companion identity."],
+                  },
                 },
               ],
             }),
@@ -1352,8 +1361,13 @@ afterEach(() => {
     expect(screen.getAllByText("Live2D-ready").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Voice ready").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Workspace only").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Sunrise").length).toBeGreaterThan(0);
-    expect(screen.getByText("Recent: local setup")).toBeInTheDocument();
+      expect(screen.getAllByText("Sunrise").length).toBeGreaterThan(0);
+      expect(
+        screen.getAllByText(
+          "A bright early-day companion who keeps the desk calm and the next step practical.",
+        ).length,
+      ).toBeGreaterThan(0);
+      expect(screen.getByText("Recent: local setup")).toBeInTheDocument();
     expect(
       screen.getByText(
         "The user focused on local setup. The companion responded with a calm local reply.",

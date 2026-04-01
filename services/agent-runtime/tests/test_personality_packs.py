@@ -198,6 +198,8 @@ def test_default_active_pack_profile_is_intentional_when_no_pack_is_selected() -
     assert profile["avatar"]["stage_label"] == "Desk shell"
     assert profile["model"]["renderer"] == "shell"
     assert profile["model"]["speaking_hook"] == "speaking"
+    assert profile["character_profile"]["origin"] == "default"
+    assert "desktop companion" in profile["character_profile"]["summary"]
     assert profile["model"]["blink_hook"] == "blink"
     assert profile["model"]["look_at_hook"] == "look-at"
     assert profile["model"]["idle_eye_hook"] == "idle-eyes"
@@ -336,6 +338,9 @@ def test_import_tavern_card_creates_pack_with_local_signature(tmp_path: Path) ->
     payload = response.json()
     assert payload["pack"]["display_name"] == "Imported Friend"
     assert payload["pack"]["active"] is True
+    assert payload["pack"]["character_profile"]["origin"] == "tavern-card"
+    assert payload["pack"]["character_profile"]["opening_message"] == "Hi. I am here and ready."
+    assert payload["pack"]["character_profile"]["summary"] == "A calm local companion."
 
     installed_manifest = (
         personality_packs.PACKS_DIR / "imported-friend" / "pack.json"

@@ -151,6 +151,18 @@ function getActivePackFromResponse(packs: InstalledPack[]): InstalledPack | null
   return packs.find((pack) => pack.active) ?? null;
 }
 
+function getActiveCharacterSummary(activePack: InstalledPack | null): string | null {
+  return (
+    activePack?.character_profile?.summary ??
+    activePack?.character_profile?.persona ??
+    null
+  );
+}
+
+function getActiveCharacterOpening(activePack: InstalledPack | null): string | null {
+  return activePack?.character_profile?.opening_message ?? null;
+}
+
 function getPackAssetUrl(
   activePack: InstalledPack | null,
   assetType: "preview-image" | "model-asset",
@@ -2167,6 +2179,8 @@ export function CompanionWorkspace() {
     latestMemorySummary?.summary ??
     `${companionTitle} will keep the thread steady here as your local summaries build up.`;
   const continuityFreshnessLabel = getContinuityFreshnessLabel(latestMemorySummary);
+  const activeCharacterSummary = getActiveCharacterSummary(activePack);
+  const activeCharacterOpening = getActiveCharacterOpening(activePack);
   const activeTodoCount = getActiveTodoCount(microUtilityState);
   const activeTimerCount = getActiveTimerCount(microUtilityState);
 
@@ -2187,11 +2201,11 @@ export function CompanionWorkspace() {
       >
         <div className="stage-panel__copy">
           <span className="eyebrow">Companion OS</span>
-          <h1>{companionTitle} is awake.</h1>
-          <p>
-            A calm local companion for check-ins, useful actions, and one
-            continuous thread you can pick up whenever the day gets noisy.
-          </p>
+            <h1>{companionTitle} is awake.</h1>
+            <p>
+              {activeCharacterSummary ??
+                "A calm local companion for check-ins, useful actions, and one continuous thread you can pick up whenever the day gets noisy."}
+            </p>
           <div className="stage-panel__rail" aria-label="Companion readiness">
             <div className="stage-panel__rail-item">
               <span className="stage-panel__rail-label">Identity</span>
@@ -2312,14 +2326,18 @@ export function CompanionWorkspace() {
             </div>
 
             <div className="settings-panel__grid">
-              <article className="settings-card">
-                <span className="settings-card__label">Selected pack</span>
-                <strong>{companionTitle}</strong>
-                <p>
-                  The active pack keeps this companion&apos;s tone, idle motion, and
-                  voice cues consistent after restarts.
-                </p>
-              </article>
+                <article className="settings-card">
+                  <span className="settings-card__label">Selected pack</span>
+                  <strong>{companionTitle}</strong>
+                  <p>
+                    The active pack keeps this companion&apos;s tone, idle motion, and
+                    voice cues consistent after restarts.
+                  </p>
+                  {activeCharacterSummary ? <p>{activeCharacterSummary}</p> : null}
+                  {activeCharacterOpening ? (
+                    <p>Opening line: {activeCharacterOpening}</p>
+                  ) : null}
+                </article>
 
               <article className="settings-card">
                 <span className="settings-card__label">Avatar profile</span>
@@ -2767,6 +2785,7 @@ export function CompanionWorkspace() {
                   ? `${companionTitle} can resume your last thread, hold onto local notes, and help you move the desk forward without losing the tone.`
                   : `${companionTitle} can help you begin the day calmly, keep notes nearby, and carry the next thread without overcomplicating it.`}
               </p>
+              {activeCharacterSummary ? <p>{activeCharacterSummary}</p> : null}
             </div>
             <div className="daily-routines-desk__meta">
               <span>{activeTodoCount} open notes</span>

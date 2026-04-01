@@ -473,6 +473,7 @@ class InstalledPackResponse(BaseModel):
     voice: dict[str, str | None] = Field(default_factory=dict)
     avatar: dict[str, object] = Field(default_factory=dict)
     model: dict[str, str | None] = Field(default_factory=dict)
+    character_profile: dict[str, object] = Field(default_factory=dict)
 
 
 class PackListResponse(BaseModel):

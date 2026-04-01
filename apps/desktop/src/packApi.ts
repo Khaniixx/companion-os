@@ -44,6 +44,18 @@ export type PackModelConfig = {
   idle_eye_hook?: string | null;
 };
 
+export type PackCharacterProfile = {
+  origin?: string | null;
+  summary?: string | null;
+  persona?: string | null;
+  scenario?: string | null;
+  opening_message?: string | null;
+  example_dialogue?: string | null;
+  creator_notes?: string | null;
+  tags?: string[];
+  style_notes?: string[];
+};
+
 export type InstalledPack = {
   id: string;
   name: string;
@@ -62,6 +74,7 @@ export type InstalledPack = {
   voice?: PackVoiceConfig;
   avatar?: PackAvatarConfig;
   model?: PackModelConfig;
+  character_profile?: PackCharacterProfile;
 };
 
 export type PackListResponse = {

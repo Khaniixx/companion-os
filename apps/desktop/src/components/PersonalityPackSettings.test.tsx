@@ -36,6 +36,11 @@ function createPackApiMock() {
         active: true,
         icon_data_url: null,
         installed_at: "2026-03-29T00:00:00+00:00",
+        character_profile: {
+          origin: "pack",
+          summary: "A bright, practical desk companion who keeps the next step clear.",
+          tags: ["steady"],
+        },
       },
       {
         id: "evening-companion",
@@ -54,6 +59,13 @@ function createPackApiMock() {
         active: false,
         icon_data_url: null,
         installed_at: "2026-03-29T00:00:00+00:00",
+        character_profile: {
+          origin: "tavern-card",
+          summary: "A dramatic late-night character with a softer voice underneath.",
+          scenario: "Waiting after hours for the next check-in.",
+          opening_message: "You came back. I kept the desk light on.",
+          tags: ["dramatic", "late-night"],
+        },
       },
     ],
   };
@@ -281,6 +293,11 @@ describe("PersonalityPackSettings", () => {
 
     expect(await screen.findByText("Sunrise")).toBeInTheDocument();
     expect(screen.getByText("Evening")).toBeInTheDocument();
+    expect(
+      screen.getByText("A dramatic late-night character with a softer voice underneath."),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Imported Tavern character/i)).toBeInTheDocument();
+    expect(screen.getByText(/Opening line:/i)).toBeInTheDocument();
     expect(await screen.findByText("Bloom Starter Pack")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Use this pack" }));

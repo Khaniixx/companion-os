@@ -2377,6 +2377,32 @@ textarea {
   gap: 8px;
 }
 
+.pack-card__character {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(18, 32, 52, 0.72);
+  border: 1px solid rgba(153, 182, 220, 0.1);
+}
+
+.pack-card__character-label {
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(180, 206, 239, 0.74);
+}
+
+.pack-card__character p {
+  margin: 0;
+  color: rgba(232, 240, 252, 0.88);
+  line-height: 1.5;
+}
+
+.pack-card__character-detail strong {
+  color: #dffaf4;
+}
+
 .pack-card__tag {
   padding: 7px 10px;
   border-radius: 999px;
@@ -2384,6 +2410,12 @@ textarea {
   border: 1px solid rgba(120, 236, 214, 0.12);
   color: #dffaf4;
   font-size: 0.82rem;
+}
+
+.pack-card__tag--character {
+  background: rgba(47, 38, 84, 0.72);
+  border-color: rgba(181, 159, 255, 0.16);
+  color: #efe7ff;
 }
 
 .pack-card__capabilities {

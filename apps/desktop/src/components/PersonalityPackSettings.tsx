@@ -38,6 +38,26 @@ function formatInstallDate(value: string | null): string {
   return parsedDate.toLocaleDateString();
 }
 
+function formatPackOrigin(pack: InstalledPack): string {
+  const origin = pack.character_profile?.origin;
+  if (origin === "tavern-card") {
+    return "Imported Tavern character";
+  }
+  if (origin === "default") {
+    return "Built-in companion";
+  }
+  return "Pack-defined character";
+}
+
+function getCharacterSummary(pack: InstalledPack): string | null {
+  return (
+    pack.character_profile?.summary ??
+    pack.character_profile?.persona ??
+    pack.system_prompt ??
+    null
+  );
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -324,6 +344,7 @@ export function PersonalityPackSettings({
                 <span>Age {formatContentRating(pack)}</span>
                 <span>{pack.license_name}</span>
                 <span>Installed {formatInstallDate(pack.installed_at)}</span>
+                <span>{formatPackOrigin(pack)}</span>
               </div>
 
               <p className="pack-card__copy">
@@ -333,9 +354,31 @@ export function PersonalityPackSettings({
                   : "none"}.
               </p>
 
+              {getCharacterSummary(pack) ? (
+                <div className="pack-card__character">
+                  <span className="pack-card__character-label">Character read</span>
+                  <p>{getCharacterSummary(pack)}</p>
+                  {pack.character_profile?.scenario ? (
+                    <p className="pack-card__character-detail">
+                      <strong>Scenario:</strong> {pack.character_profile.scenario}
+                    </p>
+                  ) : null}
+                  {pack.character_profile?.opening_message ? (
+                    <p className="pack-card__character-detail">
+                      <strong>Opening line:</strong> {pack.character_profile.opening_message}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
               <div className="pack-card__tags">
                 {pack.content_rating.tags.map((tag) => (
                   <span className="pack-card__tag" key={`${pack.id}-${tag}`}>
+                    {tag}
+                  </span>
+                ))}
+                {pack.character_profile?.tags?.map((tag) => (
+                  <span className="pack-card__tag pack-card__tag--character" key={`${pack.id}-character-${tag}`}>
                     {tag}
                   </span>
                 ))}

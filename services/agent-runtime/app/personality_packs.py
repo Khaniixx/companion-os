@@ -440,6 +440,61 @@ class InstalledPackSummary(BaseModel):
     voice: dict[str, str | None] = Field(default_factory=dict)
     avatar: dict[str, object] = Field(default_factory=dict)
     model: dict[str, str | None] = Field(default_factory=dict)
+    character_profile: dict[str, object] = Field(default_factory=dict)
+
+
+def _compact_text(value: object, *, max_length: int = 220) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = " ".join(value.split()).strip()
+    if not normalized:
+        return None
+    if len(normalized) <= max_length:
+        return normalized
+    return f"{normalized[: max_length - 1].rstrip()}…"
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [
+        normalized
+        for item in value
+        if isinstance(item, str) and (normalized := item.strip())
+    ]
+
+
+def _character_profile_from_manifest(manifest: PackManifest) -> dict[str, object]:
+    source = manifest.extensions.get("source")
+    normalized_source = source if isinstance(source, str) and source.strip() else "pack"
+    tavern_card = manifest.extensions.get("tavern_card")
+    tavern_fields = {}
+    if isinstance(tavern_card, dict):
+        mapped_fields = tavern_card.get("mapped_fields")
+        if isinstance(mapped_fields, dict):
+            tavern_fields = mapped_fields
+
+    style_notes = [
+        note for note in manifest.personality.style_rules[:3] if note.strip()
+    ]
+    summary = (
+        _compact_text(tavern_fields.get("description"))
+        or _compact_text(tavern_fields.get("personality"))
+        or _compact_text(tavern_fields.get("persona"))
+        or _compact_text(manifest.personality.system_prompt)
+        or _compact_text(" ".join(style_notes), max_length=180)
+    )
+    return {
+        "origin": normalized_source,
+        "summary": summary,
+        "persona": _compact_text(tavern_fields.get("persona")),
+        "scenario": _compact_text(tavern_fields.get("scenario")),
+        "opening_message": _compact_text(tavern_fields.get("first_mes")),
+        "example_dialogue": _compact_text(tavern_fields.get("mes_example")),
+        "creator_notes": _compact_text(tavern_fields.get("creator_notes")),
+        "tags": _string_list(tavern_fields.get("tags")),
+        "style_notes": style_notes,
+    }
 
 
 def _default_personality_profile() -> dict[str, object]:
@@ -487,6 +542,21 @@ def _default_personality_profile() -> dict[str, object]:
             "blink_hook": "blink",
             "look_at_hook": "look-at",
             "idle_eye_hook": "idle-eyes",
+        },
+        "character_profile": {
+            "origin": "default",
+            "summary": "A calm local desktop companion who keeps one continuous thread with you.",
+            "persona": None,
+            "scenario": "Nearby on the desk, ready to help with the next useful step.",
+            "opening_message": None,
+            "example_dialogue": None,
+            "creator_notes": None,
+            "tags": ["local-first", "steady", "desk companion"],
+            "style_notes": [
+                "Keep one continuous companion identity.",
+                "Sound calm, present, and lightly personal.",
+                "Prefer clear practical help over dashboard language.",
+            ],
         },
     }
 
@@ -736,6 +806,7 @@ def _summary_from_manifest(manifest: PackManifest) -> InstalledPackSummary:
         voice=manifest.personality.voice.model_dump(mode="json"),
         avatar=manifest.personality.avatar.model_dump(mode="json"),
         model=manifest.personality.model.model_dump(mode="json"),
+        character_profile=_character_profile_from_manifest(manifest),
     )
 
 
@@ -769,6 +840,7 @@ def get_active_pack_profile() -> dict[str, object]:
         "voice": manifest.personality.voice.model_dump(mode="json"),
         "avatar": manifest.personality.avatar.model_dump(mode="json"),
         "model": manifest.personality.model.model_dump(mode="json"),
+        "character_profile": _character_profile_from_manifest(manifest),
     }
 
 

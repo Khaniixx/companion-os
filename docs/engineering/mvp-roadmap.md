@@ -217,6 +217,8 @@ Acceptance criteria:
 - utility completions and meaningful actions trigger light reactions
 - charming but restrained idle behavior exists
 - error and recovery states still feel companion-like
+- imported and pack-defined characters start to read as real identity shifts,
+  not only Aster with different assets
 
 ### Milestone 5: Reliable Core Actions
 
