@@ -1274,6 +1274,27 @@ function createFetchMock(
           );
         }
 
+        if (body.message.startsWith("Check in with me as Sunrise.")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                ok: true,
+                route: "companion-chat",
+                user_message: body.message,
+                assistant_response:
+                  "Morning. I kept the thread warm for you, and the gentlest next step is to reopen the task you already softened.",
+                action: {
+                  type: "chat_reply",
+                  provider: "ollama",
+                  model: "llama3.1:8b-instruct",
+                },
+                loading: false,
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+
         return Promise.reject(new Error(`Unexpected chat message: ${body.message}`));
       }
 
@@ -1434,6 +1455,27 @@ afterEach(() => {
     expect(
       screen.getByRole("button", { name: "Turn this into a check-in" }),
     ).toBeInTheDocument();
+    expect(screen.getByText("Character lens")).toBeInTheDocument();
+    expect(screen.getByText("Imported character: Sunrise")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Scenario: Already nearby on the desk, ready to ease into the next task.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Opening cue: Morning. I kept the thread warm for you."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("gentle")).toBeInTheDocument();
+    expect(screen.getByText("cozy")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Use the opening line" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Draft a character check-in" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Guide me in this tone" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("1 open notes")).toBeInTheDocument();
     expect(screen.getByText("0 active timers")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start the day" })).toBeInTheDocument();
@@ -1481,6 +1523,58 @@ afterEach(() => {
     expect(
       await screen.findByDisplayValue(
         /Pick up where we left off from "Recent: sunrise rhythm"\. Keep this in mind: The user returned to Sunrise and kept the desk tone calm while planning the next task\./,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("can steer continuity back to the shared thread", async () => {
+    createFetchMock();
+    const user = userEvent.setup();
+
+    render(<CompanionWorkspace />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Resume the shared thread" }),
+    );
+
+    expect(
+      await screen.findByDisplayValue(
+        /Pick up where we left off from "Recent: local setup"\. Keep this in mind: The user focused on local setup\. The companion responded with a calm local reply\./,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("can draft and send a character-driven check-in", async () => {
+    createFetchMock();
+    const user = userEvent.setup();
+
+    render(<CompanionWorkspace />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Use the opening line" }),
+    );
+
+    expect(
+      await screen.findByDisplayValue("Morning. I kept the thread warm for you."),
+    ).toBeInTheDocument();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Draft a character check-in" }),
+    );
+
+    expect(
+      await screen.findByDisplayValue(/Check in with me as Sunrise\./),
+    ).toBeInTheDocument();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Guide me in this tone" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Morning. I kept the thread warm for you, and the gentlest next step is to reopen the task you already softened.",
+        {},
+        { timeout: 2500 },
       ),
     ).toBeInTheDocument();
   });

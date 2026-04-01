@@ -163,6 +163,29 @@ function getActiveCharacterOpening(activePack: InstalledPack | null): string | n
   return activePack?.character_profile?.opening_message ?? null;
 }
 
+function getActiveCharacterScenario(activePack: InstalledPack | null): string | null {
+  return activePack?.character_profile?.scenario ?? null;
+}
+
+function getActiveCharacterTags(activePack: InstalledPack | null): string[] {
+  return activePack?.character_profile?.tags ?? [];
+}
+
+function getActiveCharacterStyleNotes(activePack: InstalledPack | null): string[] {
+  return activePack?.character_profile?.style_notes ?? [];
+}
+
+function getCharacterOriginLabel(activePack: InstalledPack | null): string | null {
+  const origin = activePack?.character_profile?.origin;
+  if (origin === "tavern-card") {
+    return "Imported character";
+  }
+  if (origin === "pack") {
+    return "Pack-defined character";
+  }
+  return typeof origin === "string" && origin.trim().length > 0 ? origin : null;
+}
+
 function buildCharacterContinuityGuidance(
   activePack: InstalledPack | null,
   companionTitle: string,
@@ -294,6 +317,38 @@ function buildStartDayPrompt(companionTitle: string, deskContext: string): strin
 
 function buildWrapUpPrompt(companionTitle: string, deskContext: string): string {
   return `Help me wrap up today with ${companionTitle}. Summarize what matters, what should carry forward, and the next thread to pick up tomorrow. ${deskContext}`;
+}
+
+function buildCharacterCheckInPrompt(
+  companionTitle: string,
+  activePack: InstalledPack | null,
+  deskContext: string,
+): string {
+  const summary = getActiveCharacterSummary(activePack);
+  const scenario = getActiveCharacterScenario(activePack);
+  const opening = getActiveCharacterOpening(activePack);
+  const styleNotes = getActiveCharacterStyleNotes(activePack);
+  const parts = [
+    `Check in with me as ${companionTitle}.`,
+    summary ? `Character read: ${summary}` : null,
+    scenario ? `Current scenario: ${scenario}` : null,
+    opening ? `Opening tone: ${opening}` : null,
+    styleNotes.length > 0 ? `Style notes: ${styleNotes.join(" ")}` : null,
+    `Keep it short, companion-like, and useful for the next small step.`,
+    deskContext,
+  ];
+  return parts.filter(Boolean).join(" ");
+}
+
+function buildCharacterOpeningDraft(
+  companionTitle: string,
+  activePack: InstalledPack | null,
+): string {
+  const opening = getActiveCharacterOpening(activePack);
+  if (opening) {
+    return opening;
+  }
+  return `Check in with me as ${companionTitle} and keep the same character tone.`;
 }
 
 function getContinuityFreshnessLabel(summary: MemorySummary | null): string | null {
@@ -2272,6 +2327,10 @@ export function CompanionWorkspace() {
   const continuityFreshnessLabel = getContinuityFreshnessLabel(latestMemorySummary);
   const activeCharacterSummary = getActiveCharacterSummary(activePack);
   const activeCharacterOpening = getActiveCharacterOpening(activePack);
+  const activeCharacterScenario = getActiveCharacterScenario(activePack);
+  const activeCharacterTags = getActiveCharacterTags(activePack).slice(0, 3);
+  const activeCharacterStyleNotes = getActiveCharacterStyleNotes(activePack).slice(0, 2);
+  const characterOriginLabel = getCharacterOriginLabel(activePack);
   const activeTodoCount = getActiveTodoCount(microUtilityState);
   const activeTimerCount = getActiveTimerCount(microUtilityState);
   const deskContextBundle = buildDeskContextBundle({
@@ -2803,6 +2862,72 @@ export function CompanionWorkspace() {
             </article>
           ) : null}
 
+          {activeCharacterSummary || activeCharacterScenario || activeCharacterOpening ? (
+            <article className="character-desk" aria-label="Character lens">
+              <div className="character-desk__copy">
+                <span className="eyebrow">Character lens</span>
+                <h4>
+                  {characterOriginLabel ? `${characterOriginLabel}: ${companionTitle}` : companionTitle}
+                </h4>
+                {activeCharacterSummary ? <p>{activeCharacterSummary}</p> : null}
+                {activeCharacterScenario ? <p>Scenario: {activeCharacterScenario}</p> : null}
+                {activeCharacterOpening ? <p>Opening cue: {activeCharacterOpening}</p> : null}
+              </div>
+              <div className="character-desk__meta">
+                {activeCharacterTags.map((tag) => (
+                  <span key={tag}>{tag}</span>
+                ))}
+                {activeCharacterStyleNotes.map((note) => (
+                  <span key={note}>{note}</span>
+                ))}
+              </div>
+              <div className="character-desk__actions">
+                <button
+                  className="quick-action-button"
+                  disabled={isSending}
+                  type="button"
+                  onClick={() => {
+                    handleDraftChange(buildCharacterOpeningDraft(companionTitle, activePack));
+                  }}
+                >
+                  Use the opening line
+                </button>
+                <button
+                  className="quick-action-button"
+                  disabled={isSending}
+                  type="button"
+                  onClick={() => {
+                    handleDraftChange(
+                      buildCharacterCheckInPrompt(
+                        companionTitle,
+                        activePack,
+                        deskContextBundle,
+                      ),
+                    );
+                  }}
+                >
+                  Draft a character check-in
+                </button>
+                <button
+                  className="quick-action-button"
+                  disabled={isSending}
+                  type="button"
+                  onClick={() => {
+                    void submitMessage(
+                      buildCharacterCheckInPrompt(
+                        companionTitle,
+                        activePack,
+                        deskContextBundle,
+                      ),
+                    );
+                  }}
+                >
+                  Guide me in this tone
+                </button>
+              </div>
+            </article>
+          ) : null}
+
           {latestMemorySummary || memorySummaryState.pending_message_count > 0 ? (
             <article className="continuity-desk" aria-label="Recent continuity">
               <div className="continuity-desk__copy">
@@ -2810,29 +2935,63 @@ export function CompanionWorkspace() {
                 <h4>{continuityTitle}</h4>
                 <p>{continuitySummary}</p>
               </div>
-                <div className="continuity-desk__meta">
-                  {latestMemorySummary ? (
-                    <span>
-                      {latestMemorySummary.message_count} messages tucked into local memory
-                    </span>
-                  ) : null}
-                  {latestPackMemorySummary ? (
-                    <span>Pack thread ready for {companionTitle}</span>
-                  ) : null}
-                  {latestSharedMemorySummary ? <span>Shared thread ready</span> : null}
-                  {continuityFreshnessLabel ? <span>{continuityFreshnessLabel}</span> : null}
-                  {memorySummaryState.shared_pending_message_count > 0 ? (
-                    <span>
-                      {memorySummaryState.shared_pending_message_count} shared messages still settling
-                    </span>
-                  ) : null}
-                  {memorySummaryState.pack_pending_message_count > 0 ? (
-                    <span>
-                      {memorySummaryState.pack_pending_message_count} pack-thread messages still settling
-                    </span>
-                  ) : null}
-                  <span>Local memory only</span>
+              <div className="continuity-desk__meta">
+                {latestMemorySummary ? (
+                  <span>
+                    {latestMemorySummary.message_count} messages tucked into local memory
+                  </span>
+                ) : null}
+                {latestPackMemorySummary ? (
+                  <span>Pack thread ready for {companionTitle}</span>
+                ) : null}
+                {latestSharedMemorySummary ? <span>Shared thread ready</span> : null}
+                {continuityFreshnessLabel ? <span>{continuityFreshnessLabel}</span> : null}
+                {memorySummaryState.shared_pending_message_count > 0 ? (
+                  <span>
+                    {memorySummaryState.shared_pending_message_count} shared messages still settling
+                  </span>
+                ) : null}
+                {memorySummaryState.pack_pending_message_count > 0 ? (
+                  <span>
+                    {memorySummaryState.pack_pending_message_count} pack-thread messages still settling
+                  </span>
+                ) : null}
+                <span>Local memory only</span>
+              </div>
+              {latestSharedMemorySummary && latestPackMemorySummary ? (
+                <div className="continuity-desk__threads">
+                  <button
+                    className="quick-action-button"
+                    disabled={isSending}
+                    type="button"
+                    onClick={() => {
+                      handleDraftChange(
+                        buildContinuityPrompt(
+                          latestSharedMemorySummary,
+                          deskContextBundle,
+                        ),
+                      );
+                    }}
+                  >
+                    Resume the shared thread
+                  </button>
+                  <button
+                    className="quick-action-button"
+                    disabled={isSending}
+                    type="button"
+                    onClick={() => {
+                      handleDraftChange(
+                        buildContinuityPrompt(
+                          latestPackMemorySummary,
+                          deskContextBundle,
+                        ),
+                      );
+                    }}
+                  >
+                    Resume the character thread
+                  </button>
                 </div>
+              ) : null}
               <div className="continuity-desk__actions">
                 <button
                   className="quick-action-button"
@@ -2909,12 +3068,12 @@ export function CompanionWorkspace() {
               </p>
               {activeCharacterSummary ? <p>{activeCharacterSummary}</p> : null}
             </div>
-              <div className="daily-routines-desk__meta">
-                <span>{activeTodoCount} open notes</span>
-                <span>{activeTimerCount} active timers</span>
-                <span>{memorySummaryState.shared_pending_message_count} shared messages still settling</span>
-                <span>{memorySummaryState.pack_pending_message_count} pack-thread messages still settling</span>
-              </div>
+            <div className="daily-routines-desk__meta">
+              <span>{activeTodoCount} open notes</span>
+              <span>{activeTimerCount} active timers</span>
+              <span>{memorySummaryState.shared_pending_message_count} shared messages still settling</span>
+              <span>{memorySummaryState.pack_pending_message_count} pack-thread messages still settling</span>
+            </div>
             <div className="daily-routines-desk__actions">
               <button
                 className="quick-action-button quick-action-button--primary"

@@ -2752,6 +2752,65 @@ textarea {
   gap: 10px;
 }
 
+.continuity-desk__threads {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.character-desk {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top right, rgba(245, 208, 110, 0.14), transparent 40%),
+    linear-gradient(180deg, rgba(42, 29, 18, 0.78), rgba(18, 23, 33, 0.9)),
+    rgba(17, 23, 36, 0.9);
+  border: 1px solid rgba(244, 199, 110, 0.16);
+}
+
+.character-desk__copy {
+  display: grid;
+  gap: 6px;
+}
+
+.character-desk__copy h4,
+.character-desk__copy p {
+  margin: 0;
+}
+
+.character-desk__copy h4 {
+  font-family: "Bahnschrift", "Segoe UI Variable Display", sans-serif;
+  font-size: 1.04rem;
+}
+
+.character-desk__copy p {
+  color: rgba(245, 235, 220, 0.82);
+  line-height: 1.55;
+}
+
+.character-desk__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.character-desk__meta span {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(77, 55, 28, 0.42);
+  border: 1px solid rgba(244, 199, 110, 0.14);
+  color: rgba(255, 240, 213, 0.92);
+  font-size: 0.82rem;
+}
+
+.character-desk__actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .daily-routines-desk {
   display: grid;
   gap: 14px;
@@ -3298,6 +3357,8 @@ textarea {
   .utility-panel__grid,
   .follow-up-desk__actions,
   .continuity-desk__actions,
+  .continuity-desk__threads,
+  .character-desk__actions,
   .daily-routines-desk__actions,
   .welcome-desk__list,
   .quick-actions,
