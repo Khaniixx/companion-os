@@ -82,7 +82,23 @@ def make_pack_archive(
     display_name: str = "Sunrise",
 ) -> bytes:
     icon_bytes = base64.b64decode(PNG_1X1_BASE64)
-    model_bytes = b'{"version":"1.0"}'
+    moc_bytes = b"moc3-placeholder"
+    physics_bytes = b'{"Version":3}'
+    motion_bytes = b'{"Version":3}'
+    texture_bytes = icon_bytes
+    model_bytes = json.dumps(
+        {
+            "Version": 3,
+            "FileReferences": {
+                "Moc": "sunrise.moc3",
+                "Textures": ["../textures/texture_00.png"],
+                "Physics": "sunrise.physics3.json",
+                "Motions": {
+                    "Idle": [{"File": "../motions/idle.motion3.json"}],
+                },
+            },
+        }
+    ).encode("utf-8")
     manifest = {
         "schema_version": "1.0",
         "id": pack_id,
@@ -167,6 +183,10 @@ def make_pack_archive(
             "asset_hashes": {
                 "assets/icon.png": f"sha256:{personality_packs._sha256_hex(icon_bytes)}",
                 "models/sunrise.model3.json": f"sha256:{personality_packs._sha256_hex(model_bytes)}",
+                "models/sunrise.moc3": f"sha256:{personality_packs._sha256_hex(moc_bytes)}",
+                "models/sunrise.physics3.json": f"sha256:{personality_packs._sha256_hex(physics_bytes)}",
+                "motions/idle.motion3.json": f"sha256:{personality_packs._sha256_hex(motion_bytes)}",
+                "textures/texture_00.png": f"sha256:{personality_packs._sha256_hex(texture_bytes)}",
             },
         },
         "extensions": {},
@@ -178,6 +198,10 @@ def make_pack_archive(
         archive_file.writestr("pack.json", json.dumps(manifest, indent=2))
         archive_file.writestr("assets/icon.png", icon_bytes)
         archive_file.writestr("models/sunrise.model3.json", model_bytes)
+        archive_file.writestr("models/sunrise.moc3", moc_bytes)
+        archive_file.writestr("models/sunrise.physics3.json", physics_bytes)
+        archive_file.writestr("motions/idle.motion3.json", motion_bytes)
+        archive_file.writestr("textures/texture_00.png", texture_bytes)
     return archive_buffer.getvalue()
 
 
@@ -1725,4 +1749,53 @@ def test_pack_model_asset_route_serves_installed_model_asset() -> None:
 
     assert asset_response.status_code == 200
     assert asset_response.headers["content-type"] == "application/json"
-    assert asset_response.content == b'{"version":"1.0"}'
+    assert b'"FileReferences"' in asset_response.content
+
+
+def test_pack_asset_by_hash_route_serves_signed_asset() -> None:
+    archive_bytes = make_pack_archive()
+
+    install_response = client.post(
+        "/api/packs/install",
+        json={
+            "filename": "sunrise-pack.zip",
+            "archive_base64": base64.b64encode(archive_bytes).decode("ascii"),
+        },
+    )
+
+    assert install_response.status_code == 200
+
+    asset_response = client.get(
+        "/api/packs/sunrise-companion/assets/by-hash/sha256:8ded0f63e3790693fc373bf543ada35e9650e5beb5ca0ba142b1fc5ca740ea93"
+    )
+
+    assert asset_response.status_code == 200
+    assert asset_response.content == b"moc3-placeholder"
+
+
+def test_pack_live2d_model_route_rewrites_asset_urls() -> None:
+    archive_bytes = make_pack_archive()
+
+    install_response = client.post(
+        "/api/packs/install",
+        json={
+            "filename": "sunrise-pack.zip",
+            "archive_base64": base64.b64encode(archive_bytes).decode("ascii"),
+        },
+    )
+
+    assert install_response.status_code == 200
+
+    manifest_response = client.get("/api/packs/sunrise-companion/live2d-model")
+
+    assert manifest_response.status_code == 200
+    payload = manifest_response.json()
+    assert payload["FileReferences"]["Moc"].endswith(
+        "/api/packs/sunrise-companion/assets/by-hash/sha256:8ded0f63e3790693fc373bf543ada35e9650e5beb5ca0ba142b1fc5ca740ea93"
+    )
+    assert payload["FileReferences"]["Textures"][0].endswith(
+        "/api/packs/sunrise-companion/assets/by-hash/sha256:2c529d2590833e272bda27f81176579cfa5dc2e2c2ddcbe5fc4fadba21ce916d"
+    )
+    assert payload["FileReferences"]["Motions"]["Idle"][0]["File"].endswith(
+        "/api/packs/sunrise-companion/assets/by-hash/sha256:f2048c61b356bbea62e63a54aabfc7e260a2bb7b4593250aaf0ea16f921c61b9"
+    )
