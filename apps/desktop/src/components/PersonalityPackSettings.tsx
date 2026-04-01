@@ -43,6 +43,9 @@ function formatPackOrigin(pack: InstalledPack): string {
   if (origin === "tavern-card") {
     return "Imported Tavern character";
   }
+  if (origin === "vrm-import") {
+    return "Imported VRM body";
+  }
   if (origin === "default") {
     return "Built-in companion";
   }
@@ -94,9 +97,11 @@ export function PersonalityPackSettings({
   const [isLoading, setIsLoading] = useState(true);
   const [isInstallingZip, setIsInstallingZip] = useState(false);
   const [isImportingTavern, setIsImportingTavern] = useState(false);
+  const [isImportingVrm, setIsImportingVrm] = useState(false);
   const [isSelectingPackId, setIsSelectingPackId] = useState<string | null>(null);
   const [zipFile, setZipFile] = useState<File | null>(null);
   const [tavernFile, setTavernFile] = useState<File | null>(null);
+  const [vrmFiles, setVrmFiles] = useState<File[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -201,6 +206,36 @@ export function PersonalityPackSettings({
     }
   }
 
+  async function handleImportVrm(): Promise<void> {
+    if (vrmFiles.length === 0 || isImportingVrm) {
+      return;
+    }
+
+    try {
+      setIsImportingVrm(true);
+      setError(null);
+      const importedNames: string[] = [];
+      for (const vrmFile of vrmFiles) {
+        const modelBase64 = await fileToBase64(vrmFile);
+        const response = await packApi.importVrmModel(vrmFile.name, modelBase64);
+        importedNames.push(response.pack.display_name);
+      }
+      await refreshPacks();
+      setNotice(
+        importedNames.length === 1
+          ? `${importedNames[0]} was imported as a local VRM companion pack.`
+          : `${importedNames.length} local VRM companion packs were imported.`,
+      );
+      setVrmFiles([]);
+    } catch (importError) {
+      const detail =
+        importError instanceof Error ? importError.message : "Unknown VRM import error";
+      setError(detail);
+    } finally {
+      setIsImportingVrm(false);
+    }
+  }
+
   async function handleSelectPack(packId: string): Promise<void> {
     if (isSelectingPackId || packId === activePackId) {
       return;
@@ -297,6 +332,48 @@ export function PersonalityPackSettings({
             <p className="pack-settings__file-name">{tavernFile.name}</p>
           ) : null}
         </article>
+
+        <article className="settings-card">
+          <span className="settings-card__label">Import VRM body</span>
+          <p>
+            Turn one or more local `.vrm` files into selectable companion packs with a
+            VRM stage body.
+          </p>
+          <label className="pack-settings__file-label" htmlFor="vrm-model-upload">
+            Choose VRM files
+          </label>
+          <input
+            id="vrm-model-upload"
+            className="pack-settings__file-input"
+            type="file"
+            accept=".vrm,model/gltf-binary,application/octet-stream"
+            multiple
+            onChange={(event) => {
+              setVrmFiles(Array.from(event.target.files ?? []));
+            }}
+          />
+          <button
+            className="settings-action-button"
+            disabled={vrmFiles.length === 0 || isImportingVrm}
+            type="button"
+            onClick={() => {
+              void handleImportVrm();
+            }}
+          >
+            {isImportingVrm
+              ? "Importing VRM..."
+              : vrmFiles.length > 1
+                ? "Import selected VRMs"
+                : "Import VRM"}
+          </button>
+          {vrmFiles.length > 0 ? (
+            <p className="pack-settings__file-name">
+              {vrmFiles.length === 1
+                ? vrmFiles[0]?.name
+                : `${vrmFiles.length} VRM files selected`}
+            </p>
+          ) : null}
+        </article>
       </div>
 
       {isLoading ? (
@@ -305,8 +382,8 @@ export function PersonalityPackSettings({
         <div className="settings-card">
           <span className="settings-card__label">Local library</span>
           <p>
-            No personality packs are installed yet. Import a signed zip or convert a
-            Tavern Card to get started.
+            No personality packs are installed yet. Import a signed zip, convert a
+            Tavern Card, or bring in a VRM body to get started.
           </p>
         </div>
       ) : (

@@ -7,6 +7,7 @@ import { PersonalityPackSettings } from "./PersonalityPackSettings";
 function createPackApiMock() {
   const listPacks = vi.fn();
   const installPack = vi.fn();
+  const importVrmModel = vi.fn();
   const selectActivePack = vi.fn();
   const importTavernCard = vi.fn();
 
@@ -82,6 +83,18 @@ function createPackApiMock() {
     active_pack_id: "sunrise-companion",
     pack: initialList.packs[0],
   });
+  importVrmModel.mockResolvedValue({
+    active_pack_id: "sunrise-companion",
+    pack: {
+      ...initialList.packs[0],
+      id: "lapine",
+      display_name: "Lapine",
+      character_profile: {
+        origin: "vrm-import",
+        summary: "Lapine imported as a local VRM companion body.",
+      },
+    },
+  });
   importTavernCard.mockResolvedValue({
     active_pack_id: "sunrise-companion",
     pack: initialList.packs[0],
@@ -90,6 +103,7 @@ function createPackApiMock() {
   return {
     listPacks,
     installPack,
+    importVrmModel,
     selectActivePack,
     importTavernCard,
   };
@@ -360,6 +374,35 @@ describe("PersonalityPackSettings", () => {
     await waitFor(() => {
       expect(packApi.importTavernCard).toHaveBeenCalledWith(
         "friend.png",
+        expect.any(String),
+      );
+    });
+  });
+
+  it("imports selected VRM files as local packs", async () => {
+    const packApi = createPackApiMock();
+    const marketplaceApi = createMarketplaceApiMock();
+    const user = userEvent.setup();
+
+    render(
+      <PersonalityPackSettings
+        packApi={packApi}
+        marketplaceApi={marketplaceApi}
+      />,
+    );
+
+    await screen.findByText("Sunrise");
+
+    const uploadInput = screen.getByLabelText("Choose VRM files");
+    const vrmFile = new File(["vrm payload"], "Lapine.vrm", {
+      type: "application/octet-stream",
+    });
+    await user.upload(uploadInput, vrmFile);
+    await user.click(screen.getByRole("button", { name: "Import VRM" }));
+
+    await waitFor(() => {
+      expect(packApi.importVrmModel).toHaveBeenCalledWith(
+        "Lapine.vrm",
         expect.any(String),
       );
     });

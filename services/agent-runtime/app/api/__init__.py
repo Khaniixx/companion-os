@@ -54,6 +54,7 @@ from app.personality_packs import (
     get_pack_manifest_schema,
     get_pack_preview_image_path,
     get_pack_voice_reference_path,
+    import_vrm_model,
     import_tavern_card,
     install_pack_archive,
     list_installed_packs,
@@ -676,6 +677,17 @@ class TavernImportRequest(BaseModel):
         ..., min_length=1
     )
     image_base64: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        ..., min_length=1
+    )
+
+
+class VrmImportRequest(BaseModel):
+    """Base64-encoded VRM payload imported as a local pack."""
+
+    filename: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        ..., min_length=1
+    )
+    model_base64: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
         ..., min_length=1
     )
 
@@ -1433,6 +1445,28 @@ async def import_tavern_pack(
             **import_tavern_card(
                 filename=request.filename,
                 image_bytes=image_bytes,
+            )
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post("/packs/import-vrm-model", response_model=PackInstallResponse)
+async def import_vrm_pack(
+    request: VrmImportRequest,
+) -> PackInstallResponse:
+    """Convert a local VRM file into an installed pack."""
+
+    model_bytes = _decode_base64_payload(
+        request.model_base64,
+        label="model_base64",
+    )
+
+    try:
+        return PackInstallResponse(
+            **import_vrm_model(
+                filename=request.filename,
+                vrm_bytes=model_bytes,
             )
         )
     except ValueError as error:

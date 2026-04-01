@@ -176,6 +176,10 @@ def make_tavern_card_png(*, character_name: str = "Imported Friend") -> bytes:
     return bytes(png_bytes[:-12] + text_chunk + png_bytes[-12:])
 
 
+def make_vrm_bytes() -> bytes:
+    return b"glTF\x02\x00\x00\x00vrm-placeholder"
+
+
 def test_list_packs_starts_empty() -> None:
     response = client.get("/api/packs")
 
@@ -280,6 +284,30 @@ def test_select_active_pack_switches_between_installed_packs() -> None:
 def test_select_active_pack_rejects_path_traversal_input() -> None:
     with pytest.raises(ValueError, match="Invalid pack id"):
         personality_packs.select_active_pack("../outside")
+
+
+def test_import_vrm_model_installs_a_vrm_pack() -> None:
+    response = client.post(
+        "/api/packs/import-vrm-model",
+        json={
+            "filename": "Lapine.vrm",
+            "model_base64": base64.b64encode(make_vrm_bytes()).decode("ascii"),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["pack"]["display_name"] == "Lapine"
+    assert payload["pack"]["model"]["renderer"] == "vrm"
+    assert payload["pack"]["model"]["asset_path"] == "models/lapine.vrm"
+    assert payload["pack"]["avatar"]["presentation_mode"] == "model"
+    assert payload["pack"]["character_profile"]["origin"] == "vrm-import"
+    assert payload["pack"]["required_capabilities"] == [
+        {
+            "id": "overlay.render",
+            "justification": "Render the imported VRM companion body on the desktop stage.",
+        }
+    ]
 
 
 def test_install_pack_rejects_unsupported_capability() -> None:

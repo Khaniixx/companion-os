@@ -1226,6 +1226,15 @@ def _slugify_pack_id(name: str) -> str:
     return collapsed or "imported-companion"
 
 
+def _display_name_from_filename(filename: str) -> str:
+    stem = Path(filename).stem.strip()
+    if not stem:
+        return "Imported VRM"
+    normalized = re.sub(r"[_\-]+", " ", stem)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized or "Imported VRM"
+
+
 def _build_imported_manifest(
     tavern_payload: dict[str, object],
     *,
@@ -1379,6 +1388,134 @@ def _build_imported_manifest(
     return manifest
 
 
+def _build_imported_vrm_manifest(
+    *,
+    filename: str,
+    vrm_bytes: bytes,
+) -> tuple[dict[str, object], str]:
+    display_name = _display_name_from_filename(filename)
+    pack_id = _slugify_pack_id(display_name)
+    model_filename = f"{pack_id}.vrm"
+    model_path = f"models/{model_filename}"
+    summary = (
+        f"{display_name} imported as a local VRM companion body for the same "
+        "persistent desk companion."
+    )
+    manifest = {
+        "schema_version": PACK_SCHEMA_VERSION,
+        "id": pack_id,
+        "name": f"{display_name} VRM Pack",
+        "version": "1.0.0",
+        "author": {
+            "name": "Local VRM Import",
+            "website": None,
+            "contact_email": None,
+        },
+        "license": {
+            "name": "User-provided",
+            "spdx_identifier": None,
+            "url": None,
+        },
+        "content_rating": {
+            "minimum_age": 13,
+            "maximum_age": None,
+            "tags": ["imported-vrm", "local-model"],
+        },
+        "personality": {
+            "display_name": display_name,
+            "system_prompt": (
+                f"You are {display_name}, the user's persistent local desktop "
+                "companion. Keep one continuous identity while using this imported "
+                "VRM body on the desk."
+            ),
+            "style_rules": [
+                "Keep one continuous companion identity across contexts.",
+                "Sound calm, present, and practically helpful.",
+                "Acknowledge the imported body naturally when relevant, but stay the same companion.",
+            ],
+            "voice": {
+                "provider": "local",
+                "voice_id": "default",
+                "model_id": None,
+                "locale": "en-US",
+                "style": "conversational",
+                "reference_sample_path": None,
+                "fallback_provider": "browser",
+                "rvc_enabled": False,
+                "rvc_model_id": None,
+                "rvc_model_path": None,
+            },
+            "avatar": {
+                "presentation_mode": "model",
+                "stage_label": "Imported VRM",
+                "accent_color": "#9db9ff",
+                "aura_color": "#87ead8",
+                "icon_path": None,
+                "model_path": model_path,
+                "idle_animation": "idle",
+                "listening_animation": "listening",
+                "thinking_animation": "thinking",
+                "talking_animation": "talking",
+                "reaction_animation": "reaction",
+                "audio_cues": {},
+            },
+            "model": {
+                "renderer": "vrm",
+                "asset_path": model_path,
+                "preview_image_path": None,
+                "idle_hook": "idle",
+                "attached_hook": "attached",
+                "perched_hook": "perched",
+                "speaking_hook": "speaking",
+                "blink_hook": "blink",
+                "look_at_hook": "look-at",
+                "idle_eye_hook": "idle-eyes",
+            },
+        },
+        "memory_defaults": {
+            "long_term_memory_enabled": True,
+            "summary_frequency_messages": 25,
+            "opt_out_flags": ["cloud_backup", "public_sharing"],
+        },
+        "capabilities": {
+            "required": [
+                {
+                    "id": "overlay.render",
+                    "justification": "Render the imported VRM companion body on the desktop stage.",
+                }
+            ],
+            "optional": [],
+        },
+        "security": {
+            "signature": {
+                "algorithm": PACK_SIGNATURE_ALGORITHM,
+                "key_id": LOCAL_IMPORTER_KEY_ID,
+                "public_key": LOCAL_IMPORTER_PUBLIC_KEY,
+                "value": "",
+            },
+            "asset_hashes": {
+                model_path: f"sha256:{_sha256_hex(vrm_bytes)}",
+            },
+        },
+        "extensions": {
+            "source": "vrm-import",
+            "original_vrm_filename": filename,
+            "vrm_import": {
+                "summary": summary,
+            },
+        },
+    }
+    signature_bytes = _rsa_sign_rs256(
+        _canonical_manifest_payload(manifest),
+        modulus=LOCAL_IMPORTER_RSA_MODULUS,
+        private_exponent=LOCAL_IMPORTER_RSA_PRIVATE_EXPONENT,
+    )
+    manifest["security"]["signature"]["value"] = (
+        base64.urlsafe_b64encode(signature_bytes).rstrip(b"=").decode("ascii")
+    )
+    return manifest, model_filename
+
+
 def import_tavern_card(*, filename: str, image_bytes: bytes) -> dict[str, object]:
     """Convert a Tavern Card PNG into an installed personality pack."""
 
@@ -1404,6 +1541,44 @@ def import_tavern_card(*, filename: str, image_bytes: bytes) -> dict[str, object
                 pack_root,
                 source="tavern-card",
                 archive_name=filename,
+            )
+
+    return {
+        "pack": summary.model_dump(mode="json"),
+        "active_pack_id": get_active_pack_id(),
+    }
+
+
+def import_vrm_model(*, filename: str, vrm_bytes: bytes) -> dict[str, object]:
+    """Convert one VRM file into an installed local personality pack."""
+
+    normalized_filename = filename.strip()
+    if not normalized_filename:
+        raise ValueError("VRM filename is required.")
+    if Path(normalized_filename).suffix.lower() != ".vrm":
+        raise ValueError("VRM import expects a .vrm file.")
+    if not vrm_bytes:
+        raise ValueError("VRM import requires file data.")
+
+    with _pack_lock:
+        manifest, model_filename = _build_imported_vrm_manifest(
+            filename=normalized_filename,
+            vrm_bytes=vrm_bytes,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir_name:
+            pack_root = Path(temp_dir_name)
+            models_dir = pack_root / "models"
+            models_dir.mkdir(parents=True, exist_ok=True)
+            (models_dir / model_filename).write_bytes(vrm_bytes)
+            (pack_root / "pack.json").write_text(
+                json.dumps(manifest, indent=2),
+                encoding="utf-8",
+            )
+            summary = _install_from_directory(
+                pack_root,
+                source="vrm-import",
+                archive_name=normalized_filename,
             )
 
     return {

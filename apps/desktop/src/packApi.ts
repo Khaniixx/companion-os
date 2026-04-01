@@ -102,6 +102,7 @@ export type PackSelectionResponse = {
 export type PackApi = {
   listPacks: () => Promise<PackListResponse>;
   installPack: (filename: string, archiveBase64: string) => Promise<PackInstallResponse>;
+  importVrmModel: (filename: string, modelBase64: string) => Promise<PackInstallResponse>;
   selectActivePack: (packId: string) => Promise<PackSelectionResponse>;
   importTavernCard: (
     filename: string,
@@ -152,6 +153,15 @@ export const packApi: PackApi = {
       body: JSON.stringify({
         filename,
         archive_base64: archiveBase64,
+      }),
+    }),
+  importVrmModel: (filename, modelBase64) =>
+    request<PackInstallResponse>("/api/packs/import-vrm-model", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename,
+        model_base64: modelBase64,
       }),
     }),
   selectActivePack: (packId) =>
