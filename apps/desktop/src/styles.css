@@ -1499,6 +1499,165 @@ textarea {
   border-radius: 60% 60% 42% 42%;
 }
 
+.live2d-stage {
+  --avatar-accent: #9db9ff;
+  --avatar-aura: #87ead8;
+  position: relative;
+  width: min(100%, 420px);
+  min-height: 540px;
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  padding: 92px 28px 52px;
+  isolation: isolate;
+  transition:
+    transform 220ms ease,
+    filter 220ms ease,
+    opacity 220ms ease;
+}
+
+.live2d-stage__frame {
+  position: relative;
+  width: min(100%, 330px);
+  min-height: 360px;
+  padding: 26px;
+  border-radius: 34px;
+  overflow: hidden;
+  border: 1px solid rgba(157, 185, 255, 0.2);
+  background:
+    linear-gradient(180deg, rgba(13, 26, 44, 0.96), rgba(7, 15, 26, 0.92)),
+    rgba(9, 18, 31, 0.95);
+  box-shadow:
+    0 26px 64px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.live2d-stage__sheet,
+.live2d-stage__spotlight,
+.live2d-stage__scanline {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.live2d-stage__sheet {
+  background:
+    radial-gradient(circle at top, rgba(157, 185, 255, 0.14), transparent 38%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 24%);
+}
+
+.live2d-stage__spotlight {
+  background:
+    radial-gradient(circle at 50% 18%, rgba(140, 245, 215, 0.24), transparent 34%),
+    radial-gradient(circle at 50% 64%, rgba(145, 178, 255, 0.2), transparent 42%);
+  filter: blur(20px);
+}
+
+.live2d-stage__portrait {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: min(100%, 256px);
+  aspect-ratio: 0.78;
+  margin: 0 auto;
+  border-radius: 28px 28px 20px 20px;
+  border: 1px solid rgba(157, 185, 255, 0.18);
+  background:
+    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.14), transparent 32%),
+    linear-gradient(180deg, rgba(16, 35, 60, 0.98), rgba(7, 15, 26, 0.94));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 20px 44px rgba(0, 0, 0, 0.22);
+}
+
+.live2d-stage__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  filter: saturate(1.06) contrast(1.03);
+}
+
+.live2d-stage__fallback {
+  font-family: "Bahnschrift", "Segoe UI Variable Display", sans-serif;
+  font-size: 6rem;
+  color: rgba(241, 247, 255, 0.92);
+}
+
+.live2d-stage__scanline--top,
+.live2d-stage__scanline--bottom {
+  height: 2px;
+  inset-inline: 14px;
+  background: linear-gradient(90deg, transparent, rgba(140, 245, 215, 0.82), transparent);
+  opacity: 0.8;
+}
+
+.live2d-stage__scanline--top {
+  top: 18px;
+}
+
+.live2d-stage__scanline--bottom {
+  top: auto;
+  bottom: 18px;
+}
+
+.live2d-stage__status {
+  position: absolute;
+  right: 8%;
+  bottom: 8%;
+  z-index: 2;
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(157, 185, 255, 0.16);
+  background: rgba(7, 16, 27, 0.82);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.2);
+}
+
+.live2d-stage__status-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(206, 221, 241, 0.72);
+}
+
+.live2d-stage__status strong {
+  font-size: 0.96rem;
+  color: rgba(245, 249, 255, 0.96);
+}
+
+.live2d-stage--idle {
+  opacity: 0.96;
+}
+
+.live2d-stage--listening {
+  transform: translateY(-4px) scale(1.01);
+}
+
+.live2d-stage--thinking {
+  transform: translateY(-8px);
+  filter: hue-rotate(-8deg) saturate(0.94);
+}
+
+.live2d-stage--talking {
+  transform: translateY(-10px) scale(1.01);
+  filter: saturate(1.08);
+}
+
+.live2d-stage--reaction {
+  transform: translateY(-12px) scale(1.02);
+}
+
+.live2d-stage--attached .live2d-stage__frame {
+  border-color: rgba(129, 240, 214, 0.24);
+}
+
+.live2d-stage--docked .live2d-stage__frame {
+  border-color: rgba(145, 178, 255, 0.24);
+}
+
 .avatar-screen-reader {
   position: absolute;
   width: 1px;
