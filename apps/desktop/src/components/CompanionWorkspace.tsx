@@ -14,6 +14,11 @@ import {
 import { companionEventBus } from "../eventBus";
 import { installerApi } from "../installerApi";
 import {
+  memoryApi,
+  type MemorySummary,
+  type MemorySummaryList,
+} from "../memoryApi";
+import {
   applyOverlayWindowState,
   COMPANION_PRESENCE_TARGET_EVENT,
   type CompanionPresenceTargetDetail,
@@ -174,6 +179,10 @@ function getAmbientDeskCue(state: CompanionState, companionTitle: string): strin
     return `${companionTitle} perked up at a small cue on the desk.`;
   }
   return `${companionTitle} needs a breath while the local thread settles.`;
+}
+
+function buildContinuityPrompt(summary: MemorySummary): string {
+  return `Pick up where we left off from "${summary.title}". Keep this in mind: ${summary.summary}`;
 }
 
 function getSpeechOutputReadinessLabel(
@@ -474,6 +483,10 @@ export function CompanionWorkspace() {
     useState<CompanionPresenceTargetDetail | null>(null);
   const [isSavingPresence, setIsSavingPresence] = useState(false);
   const [installerCompleted, setInstallerCompleted] = useState(false);
+  const [memorySummaryState, setMemorySummaryState] = useState<MemorySummaryList>({
+    summaries: [],
+    pending_message_count: 0,
+  });
   const [activePack, setActivePack] = useState<InstalledPack | null>(null);
   const activePackPreviewImageUrl = useMemo(
     () => getPackAssetUrl(activePack, "preview-image", activePack?.model?.preview_image_path),
@@ -486,6 +499,7 @@ export function CompanionWorkspace() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
   const [isRepairingOpenClaw, setIsRepairingOpenClaw] = useState(false);
+  const latestMemorySummary = memorySummaryState.summaries[0] ?? null;
   const nextMessageIdRef = useRef(2);
   const draftRef = useRef("");
   const isSendingRef = useRef(false);
@@ -579,6 +593,7 @@ export function CompanionWorkspace() {
           utilityState,
           currentStreamState,
           modelStatusResponse,
+          nextMemorySummaryState,
         ] = await Promise.all([
           fetch(`${API_BASE_URL}/api/preferences/permissions/open_app`),
           fetch(`${API_BASE_URL}/api/preferences/permissions/open_url`),
@@ -591,6 +606,7 @@ export function CompanionWorkspace() {
           microUtilityApi.getState(),
           streamApi.getState(),
           fetch(`${API_BASE_URL}/api/chat/model-status`),
+          memoryApi.listSummaries(),
         ]);
 
         if (
@@ -641,6 +657,7 @@ export function CompanionWorkspace() {
         );
         setModelStatus(nextModelStatus);
         setInstallerCompleted(installerStatus.completed);
+        setMemorySummaryState(nextMemorySummaryState);
         setActivePack(getActivePackFromResponse(packResponse.packs));
         setMicroUtilityState(utilityState);
         seenUtilityAlertIdsRef.current = new Set(
@@ -1187,6 +1204,7 @@ export function CompanionWorkspace() {
       utilityState,
       nextStreamState,
       modelStatusResponse,
+      nextMemorySummaryState,
     ] = await Promise.all([
       fetch(`${API_BASE_URL}/api/preferences/permissions/open_app`),
       fetch(`${API_BASE_URL}/api/preferences/permissions/open_url`),
@@ -1199,6 +1217,7 @@ export function CompanionWorkspace() {
       microUtilityApi.getState(),
       streamApi.getState(),
       fetch(`${API_BASE_URL}/api/chat/model-status`),
+      memoryApi.listSummaries(),
     ]);
 
     if (
@@ -1245,12 +1264,22 @@ export function CompanionWorkspace() {
     );
     setModelStatus(nextModelStatus);
     setInstallerCompleted(installerStatus.completed);
+    setMemorySummaryState(nextMemorySummaryState);
     setActivePack(getActivePackFromResponse(packResponse.packs));
     setMicroUtilityState(utilityState);
     setStreamState(nextStreamState);
     seenStreamEventIdsRef.current = new Set(
       nextStreamState.recent_events.map((event) => event.id),
     );
+  }
+
+  async function refreshMemorySummaryState(): Promise<void> {
+    try {
+      const nextMemorySummaryState = await memoryApi.listSummaries();
+      setMemorySummaryState(nextMemorySummaryState);
+    } catch {
+      // Keep the current continuity snapshot if local memory is temporarily unavailable.
+    }
   }
 
   async function handleResetChatHistory(): Promise<void> {
@@ -1863,6 +1892,7 @@ export function CompanionWorkspace() {
           message: data.assistant_response,
         });
       }
+      void refreshMemorySummaryState();
       await handleResponseAction(data.action, userText);
     } catch {
       const packName = activePackRef.current?.display_name ?? DEFAULT_COMPANION_NAME;
@@ -2087,6 +2117,11 @@ export function CompanionWorkspace() {
     .find((message) => message.sender === "companion");
   const showsFollowUpDesk =
     !showsStarterWelcome && lastCompanionMessage !== undefined && !isSending;
+  const continuityTitle =
+    latestMemorySummary?.title ?? `Recent with ${companionTitle}`;
+  const continuitySummary =
+    latestMemorySummary?.summary ??
+    `${companionTitle} will keep the thread steady here as your local summaries build up.`;
 
   return (
     <main
@@ -2598,6 +2633,53 @@ export function CompanionWorkspace() {
                 <span>{selectedModel}</span>
                 <span>{runtimeReadinessLabel}</span>
                 <span>{voiceReadinessLabel}</span>
+              </div>
+            </article>
+          ) : null}
+
+          {latestMemorySummary || memorySummaryState.pending_message_count > 0 ? (
+            <article className="continuity-desk" aria-label="Recent continuity">
+              <div className="continuity-desk__copy">
+                <span className="eyebrow">Recent continuity</span>
+                <h4>{continuityTitle}</h4>
+                <p>{continuitySummary}</p>
+              </div>
+              <div className="continuity-desk__meta">
+                {latestMemorySummary ? (
+                  <span>
+                    {latestMemorySummary.message_count} messages tucked into local memory
+                  </span>
+                ) : null}
+                {memorySummaryState.pending_message_count > 0 ? (
+                  <span>
+                    {memorySummaryState.pending_message_count} fresh messages still settling
+                  </span>
+                ) : null}
+                <span>Local memory only</span>
+              </div>
+              <div className="continuity-desk__actions">
+                <button
+                  className="quick-action-button"
+                  disabled={latestMemorySummary === null || isSending}
+                  type="button"
+                  onClick={() => {
+                    if (latestMemorySummary === null) {
+                      return;
+                    }
+                    handleDraftChange(buildContinuityPrompt(latestMemorySummary));
+                  }}
+                >
+                  Pick up where we left off
+                </button>
+                <button
+                  className="quick-action-button"
+                  type="button"
+                  onClick={() => {
+                    setIsSettingsOpen(true);
+                  }}
+                >
+                  Open memory settings
+                </button>
               </div>
             </article>
           ) : null}

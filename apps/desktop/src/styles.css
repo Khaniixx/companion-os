@@ -2667,6 +2667,59 @@ textarea {
   font-size: 0.82rem;
 }
 
+.continuity-desk {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top left, rgba(131, 186, 255, 0.12), transparent 42%),
+    linear-gradient(180deg, rgba(14, 30, 50, 0.92), rgba(10, 20, 35, 0.86)),
+    rgba(11, 24, 41, 0.88);
+  border: 1px solid rgba(153, 182, 220, 0.12);
+}
+
+.continuity-desk__copy {
+  display: grid;
+  gap: 6px;
+}
+
+.continuity-desk__copy h4,
+.continuity-desk__copy p {
+  margin: 0;
+}
+
+.continuity-desk__copy h4 {
+  font-family: "Bahnschrift", "Segoe UI Variable Display", sans-serif;
+  font-size: 1.04rem;
+}
+
+.continuity-desk__copy p {
+  color: rgba(225, 236, 250, 0.76);
+  line-height: 1.55;
+}
+
+.continuity-desk__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.continuity-desk__meta span {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(28, 44, 74, 0.72);
+  border: 1px solid rgba(153, 182, 220, 0.12);
+  color: rgba(231, 240, 252, 0.86);
+  font-size: 0.82rem;
+}
+
+.continuity-desk__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .follow-up-desk {
   display: grid;
   gap: 14px;

@@ -1288,6 +1288,18 @@ afterEach(() => {
     expect(screen.getAllByText("Voice ready").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Workspace only").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Sunrise").length).toBeGreaterThan(0);
+    expect(screen.getByText("Recent: local setup")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The user focused on local setup. The companion responded with a calm local reply.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("6 messages tucked into local memory")).toBeInTheDocument();
+    expect(screen.getByText("2 fresh messages still settling")).toBeInTheDocument();
+    expect(screen.getByText("Local memory only")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Pick up where we left off" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Pack portrait")).toBeInTheDocument();
     expect(screen.getAllByText("Resting in workspace").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Sunrise avatar is idle")).toHaveAttribute(
@@ -1307,6 +1319,23 @@ afterEach(() => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Set a 5 minute timer" }),
+    ).toBeInTheDocument();
+  });
+
+  it("can turn the latest local continuity summary into a draft", async () => {
+    createFetchMock();
+    const user = userEvent.setup();
+
+    render(<CompanionWorkspace />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Pick up where we left off" }),
+    );
+
+    expect(
+      await screen.findByDisplayValue(
+        'Pick up where we left off from "Recent: local setup". Keep this in mind: The user focused on local setup. The companion responded with a calm local reply.',
+      ),
     ).toBeInTheDocument();
   });
 
