@@ -24,6 +24,17 @@ import {
 } from "../microUtilityApi";
 import { packApi, type InstalledPack } from "../packApi";
 import {
+  speechInputApi,
+  type SpeechInputSettings,
+} from "../speechInputApi";
+import {
+  getSpeechInputSupport,
+  startSpeechInputSession,
+  type SpeechInputSession,
+  type SpeechInputSessionStatus,
+  type SpeechInputSupport,
+} from "../speechInput";
+import {
   streamApi,
   type StreamEvent,
   type StreamReactionPreferences,
@@ -70,6 +81,8 @@ type VoiceStatus = {
   display_name: string;
   message: string;
 };
+
+type SpeechInputStatus = SpeechInputSettings;
 
 type PresenceStatus = {
   enabled: boolean;
@@ -135,6 +148,45 @@ function getAmbientDeskCue(state: CompanionState, companionTitle: string): strin
     return `${companionTitle} perked up at a small cue on the desk.`;
   }
   return `${companionTitle} needs a breath while the local thread settles.`;
+}
+
+function getSpeechInputReadinessLabel(
+  speechInputStatus: SpeechInputStatus | null,
+  support: SpeechInputSupport,
+  browserState: SpeechInputSessionStatus,
+): string {
+  if (!support.microphone) {
+    return "Mic unavailable";
+  }
+  if (browserState === "starting") {
+    return "Starting mic";
+  }
+  if (browserState === "hearing") {
+    return "Hearing you";
+  }
+  if (browserState === "listening") {
+    return "Mic listening";
+  }
+  if (browserState === "error") {
+    return "Mic needs attention";
+  }
+  return speechInputStatus?.enabled ? "Mic ready" : "Mic off";
+}
+
+function getSpeechInputSupportLabel(
+  speechInputStatus: SpeechInputStatus | null,
+  support: SpeechInputSupport,
+): string {
+  if (!support.microphone) {
+    return "This desktop shell does not expose browser microphone capture here yet.";
+  }
+  if (!speechInputStatus?.enabled) {
+    return "Turn speech input on before starting a mic check.";
+  }
+  if (support.transcription) {
+    return "Browser speech recognition is available, so spoken words can drop into the composer.";
+  }
+  return "Mic capture is available, but browser speech recognition is not exposed here yet.";
 }
 
 function getAvatarReadiness(activePack: InstalledPack | null): {
@@ -312,6 +364,12 @@ export function CompanionWorkspace() {
   const [isSavingModel, setIsSavingModel] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus | null>(null);
   const [isSavingVoice, setIsSavingVoice] = useState(false);
+  const [speechInputStatus, setSpeechInputStatus] =
+    useState<SpeechInputStatus | null>(null);
+  const [speechInputBrowserState, setSpeechInputBrowserState] =
+    useState<SpeechInputSessionStatus>("idle");
+  const [speechInputDraft, setSpeechInputDraft] = useState<string | null>(null);
+  const [isSavingSpeechInput, setIsSavingSpeechInput] = useState(false);
   const [presenceStatus, setPresenceStatus] = useState<PresenceStatus | null>(null);
   const [presenceTarget, setPresenceTarget] =
     useState<CompanionPresenceTargetDetail | null>(null);
@@ -330,6 +388,8 @@ export function CompanionWorkspace() {
   const seenStreamEventIdsRef = useRef<Set<number>>(new Set());
   const seenUtilityAlertIdsRef = useRef<Set<number>>(new Set());
   const activePackRef = useRef<InstalledPack | null>(null);
+  const speechInputSessionRef = useRef<SpeechInputSession | null>(null);
+  const speechInputSupport = useMemo(() => getSpeechInputSupport(), []);
   const desktopPresencePinned =
     (presenceStatus?.enabled ?? false) && presenceStatus?.anchor !== "workspace";
   const overlayActive = Boolean(
@@ -368,6 +428,13 @@ export function CompanionWorkspace() {
   }, [activePack]);
 
   useEffect(() => {
+    return () => {
+      speechInputSessionRef.current?.stop();
+      speechInputSessionRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
     isSendingRef.current = isSending;
   }, [isSending]);
 
@@ -388,6 +455,7 @@ export function CompanionWorkspace() {
           openAppResponse,
           openUrlResponse,
           voiceResponse,
+          speechInputResponse,
           presenceResponse,
           installerStatus,
           installerModels,
@@ -399,6 +467,7 @@ export function CompanionWorkspace() {
           fetch(`${API_BASE_URL}/api/preferences/permissions/open_app`),
           fetch(`${API_BASE_URL}/api/preferences/permissions/open_url`),
           fetch(`${API_BASE_URL}/api/preferences/voice`),
+          speechInputApi.getSettings(),
           fetch(`${API_BASE_URL}/api/preferences/presence`),
           installerApi.getInstallerStatus(),
           installerApi.getModels().catch(() => []),
@@ -422,18 +491,21 @@ export function CompanionWorkspace() {
           openAppData,
           openUrlData,
           nextVoiceStatus,
+          nextSpeechInputStatus,
           nextPresenceStatus,
           nextModelStatus,
         ] = (await Promise.all([
           openAppResponse.json(),
           openUrlResponse.json(),
           voiceResponse.json(),
+          Promise.resolve(speechInputResponse),
           presenceResponse.json(),
           modelStatusResponse.json(),
         ])) as [
           PermissionResponse,
           PermissionResponse,
           VoiceStatus,
+          SpeechInputStatus,
           PresenceStatus,
           ChatModelStatus,
         ];
@@ -445,6 +517,7 @@ export function CompanionWorkspace() {
         setHasOpenAppPermission(openAppData.granted);
         setHasOpenUrlPermission(openUrlData.granted);
         setVoiceStatus(nextVoiceStatus);
+        setSpeechInputStatus(nextSpeechInputStatus);
         setPresenceStatus(nextPresenceStatus);
         setSelectedModel(installerStatus.ai.model);
         setAvailableModels(
@@ -476,6 +549,7 @@ export function CompanionWorkspace() {
         setStreamState(null);
         setModelStatus(null);
         setVoiceStatus(null);
+        setSpeechInputStatus(null);
         setPresenceStatus(null);
         setActivePack(null);
       } finally {
@@ -908,6 +982,17 @@ export function CompanionWorkspace() {
     return data;
   }
 
+  async function persistSpeechInputSettings(
+    payload: Partial<{
+      enabled: boolean;
+      transcription_enabled: boolean;
+    }>,
+  ): Promise<SpeechInputStatus> {
+    const data = await speechInputApi.updateSettings(payload);
+    setSpeechInputStatus(data);
+    return data;
+  }
+
   const refreshVoiceStatus = useCallback(async (): Promise<VoiceStatus> => {
     const response = await fetch(`${API_BASE_URL}/api/preferences/voice`);
     if (!response.ok) {
@@ -918,6 +1003,15 @@ export function CompanionWorkspace() {
     setVoiceStatus(data);
     return data;
   }, []);
+
+  const refreshSpeechInputStatus = useCallback(
+    async (): Promise<SpeechInputStatus> => {
+      const data = await speechInputApi.getSettings();
+      setSpeechInputStatus(data);
+      return data;
+    },
+    [],
+  );
 
   async function persistPresenceSettings(
     payload: Partial<{
@@ -960,6 +1054,7 @@ export function CompanionWorkspace() {
       openAppResponse,
       openUrlResponse,
       voiceResponse,
+      speechInputResponse,
       presenceResponse,
       installerStatus,
       installerModels,
@@ -971,6 +1066,7 @@ export function CompanionWorkspace() {
       fetch(`${API_BASE_URL}/api/preferences/permissions/open_app`),
       fetch(`${API_BASE_URL}/api/preferences/permissions/open_url`),
       fetch(`${API_BASE_URL}/api/preferences/voice`),
+      speechInputApi.getSettings(),
       fetch(`${API_BASE_URL}/api/preferences/presence`),
       installerApi.getInstallerStatus(),
       installerApi.getModels().catch(() => []),
@@ -994,18 +1090,21 @@ export function CompanionWorkspace() {
       openAppData,
       openUrlData,
       nextVoiceStatus,
+      nextSpeechInputStatus,
       nextPresenceStatus,
       nextModelStatus,
     ] = (await Promise.all([
       openAppResponse.json(),
       openUrlResponse.json(),
       voiceResponse.json(),
+      Promise.resolve(speechInputResponse),
       presenceResponse.json(),
       modelStatusResponse.json(),
     ])) as [
       PermissionResponse,
       PermissionResponse,
       VoiceStatus,
+      SpeechInputStatus,
       PresenceStatus,
       ChatModelStatus,
     ];
@@ -1013,6 +1112,7 @@ export function CompanionWorkspace() {
     setHasOpenAppPermission(openAppData.granted);
     setHasOpenUrlPermission(openUrlData.granted);
     setVoiceStatus(nextVoiceStatus);
+    setSpeechInputStatus(nextSpeechInputStatus);
     setPresenceStatus(nextPresenceStatus);
     setSelectedModel(installerStatus.ai.model);
     setAvailableModels(
@@ -1126,6 +1226,92 @@ export function CompanionWorkspace() {
       setSettingsNotice(`I could not save voice settings yet: ${detail}`);
     } finally {
       setIsSavingVoice(false);
+    }
+  }
+
+  async function handleToggleSpeechInputEnabled(enabled: boolean): Promise<void> {
+    try {
+      setIsSavingSpeechInput(true);
+      const nextSpeechInputStatus = await persistSpeechInputSettings({ enabled });
+      if (!enabled) {
+        speechInputSessionRef.current?.stop();
+        speechInputSessionRef.current = null;
+        setSpeechInputBrowserState("idle");
+        setSpeechInputDraft(null);
+      }
+      setSettingsNotice(
+        enabled
+          ? "Speech input is ready when you want to talk."
+          : "Speech input is resting for now.",
+      );
+      appendCompanionMessage(nextSpeechInputStatus.message, true);
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown speech input settings error";
+      setSettingsNotice(`I could not save speech input settings yet: ${detail}`);
+    } finally {
+      setIsSavingSpeechInput(false);
+    }
+  }
+
+  async function handleToggleSpeechTranscription(
+    transcriptionEnabled: boolean,
+  ): Promise<void> {
+    try {
+      setIsSavingSpeechInput(true);
+      await persistSpeechInputSettings({
+        transcription_enabled: transcriptionEnabled,
+      });
+      setSettingsNotice(
+        transcriptionEnabled
+          ? "Browser transcription is on for speech input."
+          : "Speech input will stay mic-only until you turn transcription back on.",
+      );
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown transcription settings error";
+      setSettingsNotice(`I could not save speech input settings yet: ${detail}`);
+    } finally {
+      setIsSavingSpeechInput(false);
+    }
+  }
+
+  async function handleSpeechInputSessionToggle(): Promise<void> {
+    if (speechInputSessionRef.current !== null) {
+      speechInputSessionRef.current.stop();
+      speechInputSessionRef.current = null;
+      setSpeechInputBrowserState("idle");
+      setSettingsNotice("Speech input stopped listening.");
+      return;
+    }
+
+    if (!(speechInputStatus?.enabled ?? false)) {
+      setSettingsNotice("Turn speech input on before starting a mic check.");
+      return;
+    }
+
+    try {
+      setSpeechInputDraft(null);
+      speechInputSessionRef.current = await startSpeechInputSession({
+        locale: speechInputStatus?.locale,
+        transcriptionEnabled: speechInputStatus?.transcription_enabled,
+        onStatusChange: (status) => {
+          setSpeechInputBrowserState(status);
+        },
+        onTranscript: (transcript) => {
+          setSpeechInputDraft(transcript);
+          handleDraftChange(transcript);
+          setSettingsNotice(`Heard: "${transcript}"`);
+        },
+        onError: (message) => {
+          setSettingsNotice(message);
+        },
+      });
+    } catch (error) {
+      setSpeechInputBrowserState("error");
+      const detail =
+        error instanceof Error ? error.message : "Unknown speech input start error";
+      setSettingsNotice(detail);
     }
   }
 
@@ -1514,8 +1700,9 @@ export function CompanionWorkspace() {
     (packs: InstalledPack[], activePackId: string | null) => {
       setActivePack(packs.find((pack) => pack.id === activePackId) ?? null);
       void refreshVoiceStatus().catch(() => {});
+      void refreshSpeechInputStatus().catch(() => {});
     },
-    [refreshVoiceStatus],
+    [refreshSpeechInputStatus, refreshVoiceStatus],
   );
 
   const companionTitle = useMemo(
@@ -1551,6 +1738,21 @@ export function CompanionWorkspace() {
       : `${voiceStatus.provider} / ${voiceStatus.voice_id}${
           voiceStatus.style ? ` / ${voiceStatus.style}` : ""
         }`;
+  const speechInputReadinessLabel = getSpeechInputReadinessLabel(
+    speechInputStatus,
+    speechInputSupport,
+    speechInputBrowserState,
+  );
+  const speechInputIdentityLabel =
+    speechInputStatus === null
+      ? "Checking speech input profile."
+      : `${speechInputStatus.provider} / ${
+          speechInputStatus.transcription_enabled ? "browser transcription" : "mic only"
+        }`;
+  const speechInputSupportLabel = getSpeechInputSupportLabel(
+    speechInputStatus,
+    speechInputSupport,
+  );
   const presenceReadinessLabel =
     presenceStatus?.state === "click-through"
       ? "Pinned, click-through"
@@ -1644,6 +1846,10 @@ export function CompanionWorkspace() {
             <div className="stage-panel__rail-item">
               <span className="stage-panel__rail-label">Avatar</span>
               <strong>{avatarReadiness.label}</strong>
+            </div>
+            <div className="stage-panel__rail-item">
+              <span className="stage-panel__rail-label">Ears</span>
+              <strong>{speechInputReadinessLabel}</strong>
             </div>
             <div className="stage-panel__rail-item">
               <span className="stage-panel__rail-label">Voice</span>
@@ -1835,6 +2041,57 @@ export function CompanionWorkspace() {
                     : voiceStatus?.enabled === false
                       ? "Turn voice back on"
                       : "Mute voice for now"}
+                </button>
+              </article>
+
+              <article className="settings-card">
+                <span className="settings-card__label">Speech input</span>
+                <strong>{speechInputReadinessLabel}</strong>
+                <p>{speechInputStatus?.message ?? "Checking speech input readiness."}</p>
+                <p>{speechInputIdentityLabel}</p>
+                <p>{speechInputSupportLabel}</p>
+                {speechInputDraft ? (
+                  <p>Latest local draft: "{speechInputDraft}"</p>
+                ) : null}
+                <label className="settings-toggle">
+                  <input
+                    checked={speechInputStatus?.enabled ?? false}
+                    disabled={isSavingSpeechInput}
+                    type="checkbox"
+                    onChange={(event) => {
+                      void handleToggleSpeechInputEnabled(event.target.checked);
+                    }}
+                  />
+                  <span>Turn speech input on</span>
+                </label>
+                <label className="settings-toggle">
+                  <input
+                    checked={speechInputStatus?.transcription_enabled ?? true}
+                    disabled={
+                      isSavingSpeechInput || !(speechInputStatus?.enabled ?? false)
+                    }
+                    type="checkbox"
+                    onChange={(event) => {
+                      void handleToggleSpeechTranscription(event.target.checked);
+                    }}
+                  />
+                  <span>Use browser transcription when available</span>
+                </label>
+                <button
+                  className="settings-action-button"
+                  disabled={
+                    isSavingSpeechInput ||
+                    !(speechInputStatus?.enabled ?? false) ||
+                    !speechInputSupport.microphone
+                  }
+                  type="button"
+                  onClick={() => {
+                    void handleSpeechInputSessionToggle();
+                  }}
+                >
+                  {speechInputSessionRef.current !== null
+                    ? "Stop mic check"
+                    : "Start mic check"}
                 </button>
               </article>
 

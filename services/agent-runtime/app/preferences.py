@@ -27,6 +27,11 @@ DEFAULT_PREFERENCES: Final[dict[str, object]] = {
     "voice": {
         "enabled": True,
     },
+    "speech_input": {
+        "enabled": False,
+        "transcription_enabled": True,
+        "provider": "browser",
+    },
     "presence": {
         "enabled": False,
         "click_through_enabled": False,
@@ -67,6 +72,7 @@ def _read_preferences() -> dict[str, object]:
     ai_preferences = loaded_preferences.get("ai", {})
     personality_preferences = loaded_preferences.get("personality", {})
     voice_preferences = loaded_preferences.get("voice", {})
+    speech_input_preferences = loaded_preferences.get("speech_input", {})
     presence_preferences = loaded_preferences.get("presence", {})
     memory_preferences = loaded_preferences.get("memory", {})
 
@@ -119,6 +125,14 @@ def _read_preferences() -> dict[str, object]:
         },
         "voice": {
             "enabled": bool(voice_preferences.get("enabled", True)),
+        },
+        "speech_input": {
+            "enabled": bool(speech_input_preferences.get("enabled", False)),
+            "transcription_enabled": bool(
+                speech_input_preferences.get("transcription_enabled", True)
+            ),
+            "provider": str(speech_input_preferences.get("provider", "browser"))
+            or "browser",
         },
         "presence": {
             "enabled": presence_enabled,
@@ -259,6 +273,59 @@ def update_voice_settings(*, enabled: bool | None = None) -> dict[str, bool]:
         _write_preferences(preferences)
         return {
             "enabled": bool(voice_preferences.get("enabled", True)),
+        }
+
+
+def get_speech_input_settings() -> dict[str, object]:
+    """Return persisted speech-input preferences for the active companion."""
+
+    with _preferences_lock:
+        preferences = _read_preferences()
+        speech_input_preferences = preferences.get("speech_input", {})
+        if not isinstance(speech_input_preferences, dict):
+            speech_input_preferences = {}
+
+        return {
+            "enabled": bool(speech_input_preferences.get("enabled", False)),
+            "transcription_enabled": bool(
+                speech_input_preferences.get("transcription_enabled", True)
+            ),
+            "provider": str(speech_input_preferences.get("provider", "browser"))
+            or "browser",
+        }
+
+
+def update_speech_input_settings(
+    *,
+    enabled: bool | None = None,
+    transcription_enabled: bool | None = None,
+) -> dict[str, object]:
+    """Persist speech-input preferences for the active companion."""
+
+    with _preferences_lock:
+        preferences = _read_preferences()
+        speech_input_preferences = preferences.get("speech_input")
+        if not isinstance(speech_input_preferences, dict):
+            speech_input_preferences = {}
+            preferences["speech_input"] = speech_input_preferences
+
+        if enabled is not None:
+            speech_input_preferences["enabled"] = enabled
+        if transcription_enabled is not None:
+            speech_input_preferences["transcription_enabled"] = (
+                transcription_enabled
+            )
+
+        speech_input_preferences["provider"] = "browser"
+
+        _write_preferences(preferences)
+        return {
+            "enabled": bool(speech_input_preferences.get("enabled", False)),
+            "transcription_enabled": bool(
+                speech_input_preferences.get("transcription_enabled", True)
+            ),
+            "provider": str(speech_input_preferences.get("provider", "browser"))
+            or "browser",
         }
 
 

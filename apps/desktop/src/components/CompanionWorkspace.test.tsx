@@ -2,6 +2,25 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const mockGetSpeechInputSupport = vi.fn(() => ({
+  microphone: true,
+  transcription: true,
+  vad: true,
+}));
+const mockStartSpeechInputSession = vi.fn(async ({ onStatusChange }) => {
+  onStatusChange("listening");
+  return {
+    stop: vi.fn(() => {
+      onStatusChange("idle");
+    }),
+  };
+});
+
+vi.mock("../speechInput", () => ({
+  getSpeechInputSupport: () => mockGetSpeechInputSupport(),
+  startSpeechInputSession: (options: unknown) => mockStartSpeechInputSession(options),
+}));
+
 import { COMPANION_PRESENCE_TARGET_EVENT } from "../overlayController";
 import { CompanionWorkspace } from "./CompanionWorkspace";
 
@@ -101,6 +120,16 @@ function createFetchMock(
       voice_id: string;
       locale: string | null;
       style: string | null;
+      display_name: string;
+      message: string;
+    };
+    speechInputStatus: {
+      enabled: boolean;
+      transcription_enabled: boolean;
+      available: boolean;
+      state: "ready" | "disabled";
+      provider: string;
+      locale: string | null;
       display_name: string;
       message: string;
     };
@@ -267,6 +296,17 @@ function createFetchMock(
       state: "workspace" as const,
       message: "Aster is staying in the normal workspace until you pin the desktop presence.",
     };
+  let speechInputStatus =
+    options?.speechInputStatus ?? {
+      enabled: false,
+      transcription_enabled: true,
+      available: true,
+      state: "disabled" as const,
+      provider: "browser",
+      locale: "en-US",
+      display_name: "Sunrise",
+      message: "Sunrise's ears are resting until you turn speech input on.",
+    };
   utilityState.notes = [...utilityState.todos];
 
   const fetchMock = vi
@@ -323,6 +363,35 @@ function createFetchMock(
 
         return Promise.resolve(
           new Response(JSON.stringify(voiceStatus), { status: 200 }),
+        );
+      }
+
+      if (url.endsWith("/api/preferences/speech-input")) {
+        if (init?.method === "PUT") {
+          const body = JSON.parse(String(init.body)) as {
+            enabled?: boolean;
+            transcription_enabled?: boolean;
+          };
+          speechInputStatus = {
+            ...speechInputStatus,
+            enabled: body.enabled ?? speechInputStatus.enabled,
+            transcription_enabled:
+              body.transcription_enabled ?? speechInputStatus.transcription_enabled,
+            state:
+              body.enabled === false
+                ? "disabled"
+                : body.enabled === true || speechInputStatus.enabled
+                  ? "ready"
+                  : "disabled",
+            message:
+              body.enabled === false
+                ? `${speechInputStatus.display_name}'s ears are resting until you turn speech input on.`
+                : `${speechInputStatus.display_name} is ready to listen through the browser mic when you start it.`,
+          };
+        }
+
+        return Promise.resolve(
+          new Response(JSON.stringify(speechInputStatus), { status: 200 }),
         );
       }
 
@@ -1052,6 +1121,21 @@ function createFetchMock(
 describe("CompanionWorkspace", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    mockGetSpeechInputSupport.mockReset();
+    mockGetSpeechInputSupport.mockReturnValue({
+      microphone: true,
+      transcription: true,
+      vad: true,
+    });
+    mockStartSpeechInputSession.mockReset();
+    mockStartSpeechInputSession.mockImplementation(async ({ onStatusChange }) => {
+      onStatusChange("listening");
+      return {
+        stop: vi.fn(() => {
+          onStatusChange("idle");
+        }),
+      };
+    });
   });
 
   it("loads persisted chat history and session state on startup", async () => {
@@ -1285,6 +1369,9 @@ describe("CompanionWorkspace", () => {
         "Renderer: live2d / hooks: idle-loop, dock-right, perch-top, speak-soft",
       ),
     ).toBeInTheDocument();
+    expect(screen.getByText("Speech input")).toBeInTheDocument();
+    expect(screen.getAllByText("Mic off").length).toBeGreaterThan(0);
+    expect(screen.getByText("browser / browser transcription")).toBeInTheDocument();
     expect(screen.getByText("Desktop presence")).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -1389,6 +1476,31 @@ describe("CompanionWorkspace", () => {
         screen.getByText("I refreshed OpenClaw and reconnected the local runtime."),
       ).toBeInTheDocument();
     });
+  });
+
+  it("starts speech input and drops a heard phrase into the composer", async () => {
+    createFetchMock();
+    const user = userEvent.setup();
+    mockStartSpeechInputSession.mockImplementationOnce(async ({ onStatusChange, onTranscript }) => {
+      onStatusChange("listening");
+      onTranscript("check the timer");
+      return {
+        stop: vi.fn(() => {
+          onStatusChange("idle");
+        }),
+      };
+    });
+
+    render(<CompanionWorkspace />);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByLabelText("Turn speech input on"));
+    await user.click(screen.getByRole("button", { name: "Start mic check" }));
+
+    expect(await screen.findByDisplayValue("check the timer")).toBeInTheDocument();
+    expect(
+      screen.getByText('Latest local draft: "check the timer"'),
+    ).toBeInTheDocument();
   });
 
   it("renders attachment cues when the companion starts pinned to the active app", async () => {

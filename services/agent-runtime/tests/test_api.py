@@ -972,6 +972,41 @@ def test_voice_preferences_can_be_muted(temp_state_files: Path) -> None:
     assert '"enabled": false' in temp_state_files.read_text(encoding="utf-8")
 
 
+def test_speech_input_preferences_default_to_disabled() -> None:
+    response = client.get("/api/preferences/speech-input")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "enabled": False,
+        "transcription_enabled": True,
+        "available": True,
+        "state": "disabled",
+        "provider": "browser",
+        "locale": "en-US",
+        "display_name": "Aster",
+        "message": "Aster's ears are resting until you turn speech input on.",
+    }
+
+
+def test_speech_input_preferences_can_be_enabled(temp_state_files: Path) -> None:
+    update_response = client.put(
+        "/api/preferences/speech-input",
+        json={"enabled": True, "transcription_enabled": False},
+    )
+    read_response = client.get("/api/preferences/speech-input")
+
+    assert update_response.status_code == 200
+    assert update_response.json()["state"] == "ready"
+    assert update_response.json()["enabled"] is True
+    assert update_response.json()["transcription_enabled"] is False
+    assert read_response.status_code == 200
+    assert read_response.json()["enabled"] is True
+    assert read_response.json()["transcription_enabled"] is False
+    stored = temp_state_files.read_text(encoding="utf-8")
+    assert '"speech_input"' in stored
+    assert '"transcription_enabled": false' in stored
+
+
 def test_presence_preferences_default_to_workspace() -> None:
     response = client.get("/api/preferences/presence")
 

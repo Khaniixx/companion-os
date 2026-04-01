@@ -53,9 +53,11 @@ from app.preferences import (
     get_memory_settings,
     get_presence_settings,
     get_permission,
+    get_speech_input_settings,
     get_voice_settings,
     set_permission,
     update_presence_settings,
+    update_speech_input_settings,
     update_voice_settings,
     update_memory_settings,
 )
@@ -337,6 +339,26 @@ class VoiceSettingsUpdateRequest(BaseModel):
     """Partial update payload for persisted voice preferences."""
 
     enabled: bool | None = None
+
+
+class SpeechInputSettingsResponse(BaseModel):
+    """Persisted speech-input readiness and preference state."""
+
+    enabled: bool
+    transcription_enabled: bool
+    available: bool
+    state: str
+    provider: str
+    locale: str | None
+    display_name: str
+    message: str
+
+
+class SpeechInputSettingsUpdateRequest(BaseModel):
+    """Partial update payload for persisted speech-input preferences."""
+
+    enabled: bool | None = None
+    transcription_enabled: bool | None = None
 
 
 class PresenceSettingsResponse(BaseModel):
@@ -757,6 +779,42 @@ def _voice_settings_payload() -> VoiceSettingsResponse:
     )
 
 
+def _speech_input_settings_payload() -> SpeechInputSettingsResponse:
+    settings = get_speech_input_settings()
+    active_profile = get_active_pack_profile()
+    voice_metadata = active_profile.get("voice", {})
+    if not isinstance(voice_metadata, dict):
+        voice_metadata = {}
+
+    locale_value = voice_metadata.get("locale")
+    locale = str(locale_value).strip() or None if locale_value is not None else None
+    display_name = str(active_profile.get("display_name", "Aster")).strip() or "Aster"
+    enabled = bool(settings["enabled"])
+    transcription_enabled = bool(settings["transcription_enabled"])
+    provider = str(settings["provider"]).strip() or "browser"
+    available = provider == "browser"
+
+    if enabled:
+        state = "ready"
+        message = (
+            f"{display_name} is ready to listen through the browser mic when you start it."
+        )
+    else:
+        state = "disabled"
+        message = f"{display_name}'s ears are resting until you turn speech input on."
+
+    return SpeechInputSettingsResponse(
+        enabled=enabled,
+        transcription_enabled=transcription_enabled,
+        available=available,
+        state=state,
+        provider=provider,
+        locale=locale,
+        display_name=display_name,
+        message=message,
+    )
+
+
 def _presence_settings_payload() -> PresenceSettingsResponse:
     settings = get_presence_settings()
     enabled = bool(settings["enabled"])
@@ -1171,6 +1229,32 @@ async def save_voice_preferences(
 
     update_voice_settings(enabled=request.enabled)
     return _voice_settings_payload()
+
+
+@router.get(
+    "/preferences/speech-input",
+    response_model=SpeechInputSettingsResponse,
+)
+async def get_speech_input_preferences() -> SpeechInputSettingsResponse:
+    """Return persisted speech-input preferences for the active companion."""
+
+    return _speech_input_settings_payload()
+
+
+@router.put(
+    "/preferences/speech-input",
+    response_model=SpeechInputSettingsResponse,
+)
+async def save_speech_input_preferences(
+    request: SpeechInputSettingsUpdateRequest,
+) -> SpeechInputSettingsResponse:
+    """Persist active companion speech-input preferences."""
+
+    update_speech_input_settings(
+        enabled=request.enabled,
+        transcription_enabled=request.transcription_enabled,
+    )
+    return _speech_input_settings_payload()
 
 
 @router.get("/preferences/presence", response_model=PresenceSettingsResponse)
