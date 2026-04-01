@@ -1534,7 +1534,8 @@ textarea {
 
 .live2d-stage__sheet,
 .live2d-stage__spotlight,
-.live2d-stage__scanline {
+.live2d-stage__scanline,
+.live2d-stage__focus {
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -1571,6 +1572,17 @@ textarea {
     0 20px 44px rgba(0, 0, 0, 0.22);
 }
 
+.live2d-stage__focus {
+  inset: auto 50% 16%;
+  width: 168px;
+  height: 168px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.08), transparent 62%);
+  filter: blur(14px);
+}
+
 .live2d-stage__image {
   width: 100%;
   height: 100%;
@@ -1583,6 +1595,44 @@ textarea {
   font-family: "Bahnschrift", "Segoe UI Variable Display", sans-serif;
   font-size: 6rem;
   color: rgba(241, 247, 255, 0.92);
+}
+
+.live2d-stage__face-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.live2d-stage__eye,
+.live2d-stage__mouth {
+  position: absolute;
+  background: rgba(10, 21, 37, 0.94);
+  box-shadow: 0 0 12px rgba(157, 185, 255, 0.12);
+}
+
+.live2d-stage__eye {
+  top: 38%;
+  width: 30px;
+  height: 10px;
+  border-radius: 999px;
+}
+
+.live2d-stage__eye--left {
+  left: 31%;
+}
+
+.live2d-stage__eye--right {
+  right: 31%;
+}
+
+.live2d-stage__mouth {
+  bottom: 26%;
+  left: 50%;
+  width: 44px;
+  height: 14px;
+  transform: translateX(-50%);
+  border-radius: 40% 40% 65% 65%;
 }
 
 .live2d-stage__scanline--top,
@@ -1628,6 +1678,11 @@ textarea {
   color: rgba(245, 249, 255, 0.96);
 }
 
+.live2d-stage__status span:not(.live2d-stage__status-label):not(strong) {
+  font-size: 0.82rem;
+  color: rgba(217, 229, 245, 0.78);
+}
+
 .live2d-stage--idle {
   opacity: 0.96;
 }
@@ -1650,12 +1705,87 @@ textarea {
   transform: translateY(-12px) scale(1.02);
 }
 
+.live2d-stage--idle .live2d-stage__eye {
+  animation: live2dBlink 6.5s ease-in-out infinite;
+}
+
+.live2d-stage--listening .live2d-stage__eye,
+.live2d-stage--talking .live2d-stage__eye {
+  transform: translateX(4px);
+}
+
+.live2d-stage--thinking .live2d-stage__eye {
+  transform: translateX(-3px);
+}
+
+.live2d-stage--talking .live2d-stage__mouth {
+  height: 22px;
+  width: 52px;
+  animation: live2dMouth 900ms ease-in-out infinite;
+}
+
+.live2d-stage--reaction .live2d-stage__mouth {
+  width: 50px;
+  height: 12px;
+}
+
+.live2d-stage--idle .live2d-stage__portrait {
+  animation: live2dIdleFloat 6s ease-in-out infinite;
+}
+
+.live2d-stage--thinking .live2d-stage__portrait {
+  animation: live2dIdleFloat 4.4s ease-in-out infinite;
+}
+
+.live2d-stage--attached .live2d-stage__focus {
+  background:
+    radial-gradient(circle, rgba(129, 240, 214, 0.14), transparent 62%);
+}
+
+.live2d-stage--docked .live2d-stage__focus {
+  background:
+    radial-gradient(circle, rgba(145, 178, 255, 0.14), transparent 62%);
+}
+
 .live2d-stage--attached .live2d-stage__frame {
   border-color: rgba(129, 240, 214, 0.24);
 }
 
 .live2d-stage--docked .live2d-stage__frame {
   border-color: rgba(145, 178, 255, 0.24);
+}
+
+@keyframes live2dBlink {
+  0%,
+  46%,
+  52%,
+  100% {
+    transform: scaleY(1);
+  }
+  48%,
+  50% {
+    transform: scaleY(0.14);
+  }
+}
+
+@keyframes live2dMouth {
+  0%,
+  100% {
+    transform: translateX(-50%) scaleY(0.88);
+  }
+  50% {
+    transform: translateX(-50%) scaleY(1.14);
+  }
+}
+
+@keyframes live2dIdleFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
 }
 
 .avatar-screen-reader {

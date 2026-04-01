@@ -106,6 +106,9 @@ def make_pack_archive(
                 "attached_hook": "dock-right",
                 "perched_hook": "perch-top",
                 "speaking_hook": "speak-soft",
+                "blink_hook": "blink-soft",
+                "look_at_hook": "look-at-cursor",
+                "idle_eye_hook": "idle-glance",
             },
         },
         "memory_defaults": {
@@ -195,6 +198,9 @@ def test_default_active_pack_profile_is_intentional_when_no_pack_is_selected() -
     assert profile["avatar"]["stage_label"] == "Desk shell"
     assert profile["model"]["renderer"] == "shell"
     assert profile["model"]["speaking_hook"] == "speaking"
+    assert profile["model"]["blink_hook"] == "blink"
+    assert profile["model"]["look_at_hook"] == "look-at"
+    assert profile["model"]["idle_eye_hook"] == "idle-eyes"
 
 
 def test_install_pack_archive_persists_and_auto_selects() -> None:
@@ -215,6 +221,7 @@ def test_install_pack_archive_persists_and_auto_selects() -> None:
     assert payload["pack"]["active"] is True
     assert payload["pack"]["model"]["renderer"] == "live2d"
     assert payload["pack"]["model"]["asset_path"] == "models/sunrise.model3.json"
+    assert payload["pack"]["model"]["blink_hook"] == "blink-soft"
 
     list_response = client.get("/api/packs")
     assert list_response.status_code == 200
@@ -225,6 +232,7 @@ def test_install_pack_archive_persists_and_auto_selects() -> None:
         }
     ]
     assert list_response.json()["packs"][0]["model"]["attached_hook"] == "dock-right"
+    assert list_response.json()["packs"][0]["model"]["look_at_hook"] == "look-at-cursor"
     assert preferences.get_active_pack_id() == "sunrise-companion"
 
 

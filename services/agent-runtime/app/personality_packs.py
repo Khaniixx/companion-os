@@ -251,6 +251,9 @@ class ModelConfig(BaseModel):
     attached_hook: str | None = None
     perched_hook: str | None = None
     speaking_hook: str | None = None
+    blink_hook: str | None = None
+    look_at_hook: str | None = None
+    idle_eye_hook: str | None = None
 
     @field_validator("renderer")
     @classmethod
@@ -267,7 +270,15 @@ class ModelConfig(BaseModel):
             return value
         return _normalized_relative_path(value)
 
-    @field_validator("idle_hook", "attached_hook", "perched_hook", "speaking_hook")
+    @field_validator(
+        "idle_hook",
+        "attached_hook",
+        "perched_hook",
+        "speaking_hook",
+        "blink_hook",
+        "look_at_hook",
+        "idle_eye_hook",
+    )
     @classmethod
     def validate_optional_hook(cls, value: str | None) -> str | None:
         if value is None:
@@ -473,6 +484,9 @@ def _default_personality_profile() -> dict[str, object]:
             "attached_hook": "attached",
             "perched_hook": "perched",
             "speaking_hook": "speaking",
+            "blink_hook": "blink",
+            "look_at_hook": "look-at",
+            "idle_eye_hook": "idle-eyes",
         },
     }
 
@@ -1063,6 +1077,9 @@ def _build_imported_manifest(
                 "attached_hook": "attached",
                 "perched_hook": "perched",
                 "speaking_hook": "speaking",
+                "blink_hook": "blink",
+                "look_at_hook": "look-at",
+                "idle_eye_hook": "idle-eyes",
             },
         },
         "memory_defaults": {

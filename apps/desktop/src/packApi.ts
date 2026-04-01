@@ -39,6 +39,9 @@ export type PackModelConfig = {
   attached_hook?: string | null;
   perched_hook?: string | null;
   speaking_hook?: string | null;
+  blink_hook?: string | null;
+  look_at_hook?: string | null;
+  idle_eye_hook?: string | null;
 };
 
 export type InstalledPack = {

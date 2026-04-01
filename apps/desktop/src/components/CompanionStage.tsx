@@ -108,6 +108,30 @@ function getLive2DHook(
   return modelConfig?.attached_hook ?? "follow-thread";
 }
 
+function getBlinkHook(modelConfig?: PackModelConfig): string {
+  return modelConfig?.blink_hook ?? "blink-soft";
+}
+
+function getLookAtHook(
+  state: CompanionState,
+  attachmentMode: "attached" | "docked" | "workspace",
+  modelConfig?: PackModelConfig,
+): string {
+  if (state === "listening" || state === "talking" || attachmentMode === "attached") {
+    return modelConfig?.look_at_hook ?? "look-at-cursor";
+  }
+  return modelConfig?.look_at_hook ?? "look-at-center";
+}
+
+function getIdleEyeHook(
+  state: CompanionState,
+  modelConfig?: PackModelConfig,
+): string {
+  return state === "idle" || state === "thinking"
+    ? modelConfig?.idle_eye_hook ?? "idle-glance"
+    : modelConfig?.idle_eye_hook ?? "steady-gaze";
+}
+
 function getStageBadge(modelConfig?: PackModelConfig): string {
   return modelConfig?.asset_path ? "Live2D loaded" : "Live2D-ready";
 }
@@ -130,6 +154,9 @@ function renderLive2DStage({
   );
   const presenceCue = getPresenceCue(state);
   const live2dHook = getLive2DHook(state, modelConfig);
+  const blinkHook = getBlinkHook(modelConfig);
+  const lookAtHook = getLookAtHook(state, attachmentMode, modelConfig);
+  const idleEyeHook = getIdleEyeHook(state, modelConfig);
   const stageLabel = avatarConfig?.stage_label ?? "Live2D stage";
   const badgeLabel = getStageBadge(modelConfig);
   const live2dStyle = {
@@ -148,6 +175,9 @@ function renderLive2DStage({
       data-attachment-mode={attachmentMode}
       data-attachment-label={attachmentLabel}
       data-stage-label={stageLabel}
+      data-blink-hook={blinkHook}
+      data-look-at-hook={lookAtHook}
+      data-idle-eye-hook={idleEyeHook}
       style={live2dStyle}
     >
       <div className="avatar-plaque" aria-hidden="true">
@@ -165,6 +195,7 @@ function renderLive2DStage({
       <div className="live2d-stage__frame" aria-hidden="true">
         <div className="live2d-stage__sheet" />
         <div className="live2d-stage__spotlight" />
+        <div className={`live2d-stage__focus live2d-stage__focus--${state}`} />
         <div className="live2d-stage__portrait">
           {modelConfig?.preview_image_path || iconDataUrl ? (
             <img
@@ -177,17 +208,25 @@ function renderLive2DStage({
               {displayName.charAt(0).toUpperCase()}
             </span>
           )}
+          <div className="live2d-stage__face-overlay">
+            <span className={`live2d-stage__eye live2d-stage__eye--left live2d-stage__eye--${state}`} />
+            <span className={`live2d-stage__eye live2d-stage__eye--right live2d-stage__eye--${state}`} />
+            <span className={`live2d-stage__mouth live2d-stage__mouth--${state}`} />
+          </div>
         </div>
         <div className="live2d-stage__scanline live2d-stage__scanline--top" />
         <div className="live2d-stage__scanline live2d-stage__scanline--bottom" />
       </div>
       <div className={`live2d-stage__status live2d-stage__status--${state}`}>
-        <span className="live2d-stage__status-label">Live2D hook</span>
+        <span className="live2d-stage__status-label">Live2D hooks</span>
         <strong>{live2dHook}</strong>
+        <span>{blinkHook}</span>
+        <span>{lookAtHook}</span>
+        <span>{idleEyeHook}</span>
       </div>
       <span className="avatar-screen-reader">
         {displayName} is on the Live2D stage with the {live2dHook} hook active.
-        {` ${attachmentLabel}. ${presenceCue}.`}
+        {` ${blinkHook}. ${lookAtHook}. ${idleEyeHook}. ${attachmentLabel}. ${presenceCue}.`}
       </span>
     </div>
   );
