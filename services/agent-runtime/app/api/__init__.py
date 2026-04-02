@@ -46,6 +46,7 @@ from app.marketplace import (
 )
 from app.personality_packs import (
     PACK_ID_PATTERN,
+    create_local_character_pack,
     get_active_pack_id,
     get_active_pack_profile,
     get_pack_asset_path_by_hash,
@@ -54,6 +55,7 @@ from app.personality_packs import (
     get_pack_manifest_schema,
     get_pack_preview_image_path,
     get_pack_voice_reference_path,
+    import_vrm_model,
     import_tavern_card,
     install_pack_archive,
     list_installed_packs,
@@ -678,6 +680,65 @@ class TavernImportRequest(BaseModel):
     image_base64: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
         ..., min_length=1
     )
+
+
+class VrmImportRequest(BaseModel):
+    """Base64-encoded VRM payload imported as a local pack."""
+
+    filename: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        ..., min_length=1
+    )
+    model_base64: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        ..., min_length=1
+    )
+
+
+class CharacterBuilderRequest(BaseModel):
+    """Simple local character-builder payload."""
+
+    display_name: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        ..., min_length=1
+    )
+    summary: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        ..., min_length=1
+    )
+    opening_message: Annotated[str, StringConstraints(strip_whitespace=True)] | None = (
+        None
+    )
+    scenario: Annotated[str, StringConstraints(strip_whitespace=True)] | None = None
+    style_notes: list[Annotated[str, StringConstraints(strip_whitespace=True)]] = Field(
+        default_factory=list
+    )
+    source_pack_id: (
+        Annotated[
+            str,
+            StringConstraints(
+                strip_whitespace=True,
+                to_lower=True,
+                pattern=PACK_ID_PATTERN.pattern,
+            ),
+        ]
+        | None
+    ) = None
+    portrait_filename: (
+        Annotated[str, StringConstraints(strip_whitespace=True)] | None
+    ) = None
+    portrait_image_base64: (
+        Annotated[str, StringConstraints(strip_whitespace=True)] | None
+    ) = None
+    voice_provider: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        default="local",
+        min_length=1,
+    )
+    voice_id: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        default="default",
+        min_length=1,
+    )
+    voice_model_id: Annotated[str, StringConstraints(strip_whitespace=True)] | None = (
+        None
+    )
+    voice_locale: Annotated[str, StringConstraints(strip_whitespace=True)] | None = None
+    voice_style: Annotated[str, StringConstraints(strip_whitespace=True)] | None = None
 
 
 class MarketplacePublisherResponse(BaseModel):
@@ -1433,6 +1494,63 @@ async def import_tavern_pack(
             **import_tavern_card(
                 filename=request.filename,
                 image_bytes=image_bytes,
+            )
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post("/packs/import-vrm-model", response_model=PackInstallResponse)
+async def import_vrm_pack(
+    request: VrmImportRequest,
+) -> PackInstallResponse:
+    """Convert a local VRM file into an installed pack."""
+
+    model_bytes = _decode_base64_payload(
+        request.model_base64,
+        label="model_base64",
+    )
+
+    try:
+        return PackInstallResponse(
+            **import_vrm_model(
+                filename=request.filename,
+                vrm_bytes=model_bytes,
+            )
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post("/packs/create-character", response_model=PackInstallResponse)
+async def create_character_pack(
+    request: CharacterBuilderRequest,
+) -> PackInstallResponse:
+    """Build and install one local character pack from simple user inputs."""
+
+    portrait_bytes: bytes | None = None
+    if request.portrait_image_base64 is not None:
+        portrait_bytes = _decode_base64_payload(
+            request.portrait_image_base64,
+            label="portrait_image_base64",
+        )
+
+    try:
+        return PackInstallResponse(
+            **create_local_character_pack(
+                display_name=request.display_name,
+                summary=request.summary,
+                opening_message=request.opening_message,
+                scenario=request.scenario,
+                style_notes=request.style_notes,
+                voice_provider=request.voice_provider,
+                voice_id=request.voice_id,
+                voice_model_id=request.voice_model_id,
+                voice_locale=request.voice_locale,
+                voice_style=request.voice_style,
+                source_pack_id=request.source_pack_id,
+                portrait_filename=request.portrait_filename,
+                portrait_bytes=portrait_bytes,
             )
         )
     except ValueError as error:

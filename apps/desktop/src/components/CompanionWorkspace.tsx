@@ -138,6 +138,31 @@ const starterMessages: CompanionMessage[] = [
   },
 ];
 
+function buildStarterMessage(
+  companionTitle: string,
+  activePack: InstalledPack | null,
+): string {
+  const opening = getActiveCharacterOpening(activePack);
+  const summary = getActiveCharacterSummary(activePack);
+  if (opening) {
+    return opening;
+  }
+  if (summary) {
+    return `${companionTitle} is here. ${summary}`;
+  }
+  return DEFAULT_STARTER_MESSAGE;
+}
+
+function buildVoicePreviewLine(
+  companionTitle: string,
+  activePack: InstalledPack | null,
+): string {
+  return (
+    getActiveCharacterOpening(activePack) ??
+    `I'm ${companionTitle}, here on the desk and ready to keep the next step steady with you.`
+  );
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 const MIN_THINKING_DELAY_MS = 260;
 const MAX_THINKING_DELAY_MS = 1200;
@@ -400,7 +425,15 @@ function getSpeechOutputReadinessLabel(
   if (outputStatus === "error") {
     return "Voice needs attention";
   }
-  if (!support.synthesis) {
+  if (
+    !support.synthesis &&
+    !(
+      voiceStatus?.output_mode === "pack" &&
+      voiceStatus.local_engine_ready &&
+      voiceStatus.provider === "chatterbox" &&
+      support.audioPlayback
+    )
+  ) {
     return "Voice unsupported";
   }
   if (voiceStatus?.state === "configured") {
@@ -445,6 +478,18 @@ function getSpeechOutputSupportLabel(
     return "Browser speech playback is available for quick local voice checks.";
   }
   return `${voiceStatus?.display_name ?? "Aster"} can speak through the browser voice surface once voices finish loading.`;
+}
+
+function canUseLocalPackVoicePlayback(
+  voiceStatus: VoiceStatus | null,
+  support: SpeechOutputSupport,
+): boolean {
+  return (
+    voiceStatus?.output_mode === "pack" &&
+    voiceStatus.local_engine_ready &&
+    voiceStatus.provider === "chatterbox" &&
+    support.audioPlayback
+  );
 }
 
 function getSpeechOutputIdentityLabel(voiceStatus: VoiceStatus | null): string {
@@ -794,6 +839,42 @@ export function CompanionWorkspace() {
   useEffect(() => {
     voiceStatusRef.current = voiceStatus;
   }, [voiceStatus]);
+
+  useEffect(() => {
+    const starterText = buildStarterMessage(
+      activePack?.display_name ?? DEFAULT_COMPANION_NAME,
+      activePack,
+    );
+    setMessages((currentMessages) => {
+      if (
+        currentMessages.length === 1 &&
+        currentMessages[0]?.id === 1 &&
+        currentMessages[0]?.sender === "companion"
+      ) {
+        if (currentMessages[0].text === starterText) {
+          return currentMessages;
+        }
+        return [
+          {
+            ...currentMessages[0],
+            text: starterText,
+          },
+        ];
+      }
+      return currentMessages;
+    });
+  }, [activePack]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const nextMemorySummaryState = await memoryApi.listSummaries();
+        setMemorySummaryState(nextMemorySummaryState);
+      } catch {
+        // Keep the current continuity snapshot if local memory is temporarily unavailable.
+      }
+    })();
+  }, [activePack?.id]);
 
   useEffect(() => {
     return () => {
@@ -1526,7 +1607,13 @@ export function CompanionWorkspace() {
 
   async function handleResetChatHistory(): Promise<void> {
     clearCompanionSession();
-    setMessages(starterMessages);
+    setMessages([
+      {
+        id: 1,
+        sender: "companion",
+        text: buildStarterMessage(companionTitle, activePack),
+      },
+    ]);
     setCompanionState("idle");
     draftRef.current = "";
     setDraft("");
@@ -1723,7 +1810,11 @@ export function CompanionWorkspace() {
       return false;
     }
 
-    if (!speechOutputSupport.synthesis) {
+    const localPackVoiceReady = canUseLocalPackVoicePlayback(
+      voiceStatus,
+      speechOutputSupport,
+    );
+    if (!speechOutputSupport.synthesis && !localPackVoiceReady) {
       setSettingsNotice("Browser speech playback is not available in this shell.");
       setSpeechOutputStatus("unsupported");
       return false;
@@ -1808,6 +1899,23 @@ export function CompanionWorkspace() {
         voiceStatus?.output_mode === "pack" && !voiceStatus.local_engine_ready
           ? `Reading the latest reply through the browser fallback while ${voiceStatus.display_name}'s pack voice path is still staging.`
           : `Reading the latest reply in ${voiceStatus?.display_name ?? "Aster"}'s voice.`,
+      );
+    }
+  }
+
+  async function handlePreviewCurrentVoice(): Promise<void> {
+    if (speechOutputStatus === "speaking" || speechOutputStatus === "starting") {
+      stopSpeechOutputPlayback();
+      setSettingsNotice("Voice playback stopped.");
+      return;
+    }
+
+    const previewLine = buildVoicePreviewLine(companionTitle, activePack);
+    if (speakCompanionText(previewLine)) {
+      setSettingsNotice(
+        voiceStatus?.output_mode === "pack" && !voiceStatus.local_engine_ready
+          ? `Previewing ${companionTitle}'s line through the browser fallback while the pack voice path is still staging.`
+          : `Previewing ${companionTitle}'s voice with a short hello.`,
       );
     }
   }
@@ -2412,8 +2520,7 @@ export function CompanionWorkspace() {
   const showsStarterWelcome =
     messages.length === 1 &&
     messages[0]?.id === 1 &&
-    messages[0]?.sender === "companion" &&
-    messages[0]?.text === DEFAULT_STARTER_MESSAGE;
+    messages[0]?.sender === "companion";
   const lastCompanionMessage = [...messages]
     .reverse()
     .find((message) => message.sender === "companion");
@@ -2433,6 +2540,39 @@ export function CompanionWorkspace() {
   const characterOriginLabel = getCharacterOriginLabel(activePack);
   const activeTodoCount = getActiveTodoCount(microUtilityState);
   const activeTimerCount = getActiveTimerCount(microUtilityState);
+  const companionSetupChecks = [
+    {
+      label: "Local model",
+      ready: modelStatus?.state === "ready",
+      detail:
+        modelStatus?.state === "ready"
+          ? selectedModel
+          : modelStatus?.state === "loading"
+            ? "Warming up"
+            : "Needs attention",
+    },
+    {
+      label: "Character",
+      ready: activePack !== null,
+      detail: activePack?.display_name ?? "Choose or build one",
+    },
+    {
+      label: "Voice",
+      ready:
+        Boolean(voiceStatus?.enabled) &&
+        (voiceStatus?.output_mode === "browser" ||
+          Boolean(voiceStatus?.local_engine_ready)),
+      detail: voiceReadinessLabel,
+    },
+    {
+      label: "Body",
+      ready:
+        avatarReadiness.label !== "Needs body setup" &&
+        avatarReadiness.label !== "Shell only",
+      detail: avatarReadiness.label,
+    },
+  ];
+  const needsCompanionSetup = companionSetupChecks.some((check) => !check.ready);
   const deskContextBundle = buildDeskContextBundle({
     activePack,
     companionTitle,
@@ -2732,9 +2872,29 @@ export function CompanionWorkspace() {
                   className="settings-action-button"
                   disabled={
                     isSavingVoice ||
+                    !(voiceStatus?.enabled ?? false) ||
+                    (!speechOutputSupport.synthesis &&
+                      !canUseLocalPackVoicePlayback(voiceStatus, speechOutputSupport) &&
+                      speechOutputStatus !== "speaking" &&
+                      speechOutputStatus !== "starting")
+                  }
+                  type="button"
+                  onClick={() => {
+                    void handlePreviewCurrentVoice();
+                  }}
+                >
+                  {speechOutputStatus === "speaking" || speechOutputStatus === "starting"
+                    ? "Stop voice preview"
+                    : "Preview current voice"}
+                </button>
+                <button
+                  className="settings-action-button"
+                  disabled={
+                    isSavingVoice ||
                     lastCompanionMessage === undefined ||
                     !(voiceStatus?.enabled ?? false) ||
                     (!speechOutputSupport.synthesis &&
+                      !canUseLocalPackVoicePlayback(voiceStatus, speechOutputSupport) &&
                       speechOutputStatus !== "speaking" &&
                       speechOutputStatus !== "starting")
                   }
@@ -2967,13 +3127,60 @@ export function CompanionWorkspace() {
             <span className="conversation-shell__status">{companionStateSummary}</span>
           </div>
 
+          {needsCompanionSetup ? (
+            <article className="welcome-desk" aria-label="Companion readiness guide">
+              <span className="eyebrow">Use now</span>
+              <h4>Finish the last few pieces that make {companionTitle} feel personal.</h4>
+              <p>
+                The core runtime is here. What still matters is choosing a character,
+                giving them a body or portrait, and making sure voice feels right.
+              </p>
+              <div className="welcome-desk__list" aria-label="Companion setup checklist">
+                {companionSetupChecks.map((check) => (
+                  <span key={check.label}>
+                    {check.ready ? "Ready" : "Needs work"}: {check.label} {check.detail}
+                  </span>
+                ))}
+              </div>
+              <div className="welcome-desk__meta">
+                <span>{activePack ? activePack.display_name : "No character selected"}</span>
+                <span>{voiceReadinessLabel}</span>
+                <span>{avatarReadiness.label}</span>
+              </div>
+              <div className="character-desk__actions">
+                <button
+                  className="quick-action-button quick-action-button--primary"
+                  type="button"
+                  onClick={() => {
+                    setIsSettingsOpen(true);
+                  }}
+                >
+                  Open setup and packs
+                </button>
+                <button
+                  className="quick-action-button"
+                  disabled={isSending}
+                  type="button"
+                  onClick={() => {
+                    handleDraftChange(
+                      activePack
+                        ? buildCharacterOpeningDraft(companionTitle, activePack)
+                        : `Help me shape who ${companionTitle} should feel like on this desk.`,
+                    );
+                  }}
+                >
+                  Draft the first hello
+                </button>
+              </div>
+            </article>
+          ) : null}
+
           {showsStarterWelcome ? (
             <article className="welcome-desk" aria-label="First hello">
               <span className="eyebrow">First hello</span>
               <h4>Start small with {companionTitle}.</h4>
               <p>
-                Ask for a quick check-in, open something you use often, or let
-                {` ${companionTitle}`} keep a quiet note while you get settled.
+                {messages[0]?.text}
               </p>
               <div className="welcome-desk__list" aria-label="Suggested ways to begin">
                 <span>Ask a small question</span>

@@ -243,6 +243,8 @@ Acceptance criteria:
   optional `rvc` chaining
 - browser playback remains a clear fallback while richer local character-voice
   engines are still being connected
+- free local `.vrm` files can be imported directly into selectable companion
+  packs without hand-authoring `pack.json`
 
 ### Milestone 6: Experimental Platform Foundations
 

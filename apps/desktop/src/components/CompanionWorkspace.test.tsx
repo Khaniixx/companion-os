@@ -11,6 +11,7 @@ const mockGetSpeechInputSupport = vi.fn(() => ({
 const mockGetSpeechOutputSupport = vi.fn(() => ({
   synthesis: true,
   voices: true,
+  audioPlayback: true,
 }));
 const mockSpeechOutputStop = vi.fn();
 const mockStartSpeechOutput = vi.fn(({ onStatusChange, onProgress, text }) => {
@@ -1357,6 +1358,7 @@ afterEach(() => {
   mockGetSpeechOutputSupport.mockReturnValue({
     synthesis: true,
     voices: true,
+    audioPlayback: true,
   });
   mockSpeechOutputStop.mockReset();
   mockStartSpeechInputSession.mockReset();
@@ -1441,6 +1443,7 @@ afterEach(() => {
 
     render(<CompanionWorkspace />);
 
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Settings" }));
     expect(
       await screen.findByText(/missing my local model, qwen2.5-coder:7b-instruct/i),
     ).toBeInTheDocument();
@@ -1454,11 +1457,9 @@ afterEach(() => {
     expect(
       await screen.findByText("Start small with Sunrise."),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Ask for a quick check-in, open something you use often, or let Sunrise keep a quiet note while you get settled.",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByLabelText("First hello")).toHaveTextContent(
+      /Morning\. I kept the thread warm for you\.|I'm here, awake locally, and ready to keep the desk steady with you\./,
+    );
     expect(screen.getByText("Ask a small question")).toBeInTheDocument();
     expect(screen.getByText("Set a timer or save a note")).toBeInTheDocument();
     expect(screen.getAllByText("Runtime ready").length).toBeGreaterThan(0);
@@ -1921,7 +1922,7 @@ afterEach(() => {
       screen.getByText("Recent conversation history was cleared on this device."),
     ).toBeInTheDocument();
     expect(window.localStorage.getItem("companion-os.session")).toContain(
-      "I'm here, awake locally, and ready to keep the desk steady with you.",
+      "Morning. I kept the thread warm for you.",
     );
 
     await user.click(screen.getByRole("button", { name: "Repair OpenClaw" }));
@@ -1985,11 +1986,54 @@ afterEach(() => {
     });
     expect(mockStartSpeechOutput).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        text: "I'm here, awake locally, and ready to keep the desk steady with you.",
+        text: "Morning. I kept the thread warm for you.",
         locale: "en-US",
         voiceHint: "sunrise",
       }),
     );
+    expect(
+      screen.getByText("Reading the latest reply in Sunrise's voice."),
+    ).toBeInTheDocument();
+  });
+
+  it("allows ready local pack voice playback even when browser synthesis is unavailable", async () => {
+    createFetchMock({
+      voiceStatus: {
+        enabled: true,
+        autoplay_enabled: false,
+        output_mode: "pack",
+        available: true,
+        state: "ready",
+        provider: "chatterbox",
+        voice_id: "momo-fast",
+        model_id: "chatterbox-turbo",
+        locale: "en-US",
+        style: "expressive",
+        fallback_provider: "browser",
+        reference_ready: true,
+        rvc_enabled: false,
+        rvc_model_id: null,
+        rvc_ready: false,
+        local_engine_ready: true,
+        display_name: "Sunrise",
+        message: "Sunrise's Chatterbox voice bridge is ready for local playback.",
+      },
+    });
+    mockGetSpeechOutputSupport.mockReturnValueOnce({
+      synthesis: false,
+      voices: false,
+      audioPlayback: true,
+    });
+    const user = userEvent.setup();
+
+    render(<CompanionWorkspace />);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Read latest reply" }));
+
+    await waitFor(() => {
+      expect(mockStartSpeechOutput).toHaveBeenCalled();
+    });
     expect(
       screen.getByText("Reading the latest reply in Sunrise's voice."),
     ).toBeInTheDocument();

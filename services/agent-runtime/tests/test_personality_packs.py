@@ -176,6 +176,10 @@ def make_tavern_card_png(*, character_name: str = "Imported Friend") -> bytes:
     return bytes(png_bytes[:-12] + text_chunk + png_bytes[-12:])
 
 
+def make_vrm_bytes() -> bytes:
+    return b"glTF\x02\x00\x00\x00vrm-placeholder"
+
+
 def test_list_packs_starts_empty() -> None:
     response = client.get("/api/packs")
 
@@ -280,6 +284,127 @@ def test_select_active_pack_switches_between_installed_packs() -> None:
 def test_select_active_pack_rejects_path_traversal_input() -> None:
     with pytest.raises(ValueError, match="Invalid pack id"):
         personality_packs.select_active_pack("../outside")
+
+
+def test_import_vrm_model_installs_a_vrm_pack() -> None:
+    response = client.post(
+        "/api/packs/import-vrm-model",
+        json={
+            "filename": "Lapine.vrm",
+            "model_base64": base64.b64encode(make_vrm_bytes()).decode("ascii"),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["pack"]["display_name"] == "Lapine"
+    assert payload["pack"]["model"]["renderer"] == "vrm"
+    assert payload["pack"]["model"]["asset_path"] == "models/avatar.vrm"
+    assert payload["pack"]["avatar"]["presentation_mode"] == "model"
+    assert payload["pack"]["character_profile"]["origin"] == "vrm-import"
+    assert payload["pack"]["required_capabilities"] == [
+        {
+            "id": "overlay.render",
+            "justification": "Render the imported VRM companion body on the desktop stage.",
+        }
+    ]
+
+
+def test_import_vrm_model_sanitizes_path_like_filename() -> None:
+    response = client.post(
+        "/api/packs/import-vrm-model",
+        json={
+            "filename": "..\\avatars\\Noir.vrm",
+            "model_base64": base64.b64encode(make_vrm_bytes()).decode("ascii"),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["pack"]["id"] == "noir"
+    assert payload["pack"]["display_name"] == "Noir"
+    assert payload["pack"]["model"]["asset_path"] == "models/avatar.vrm"
+
+
+def test_import_vrm_model_rejects_unsupported_filename_characters() -> None:
+    response = client.post(
+        "/api/packs/import-vrm-model",
+        json={
+            "filename": "Noir?.vrm",
+            "model_base64": base64.b64encode(make_vrm_bytes()).decode("ascii"),
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Uploaded filename contains unsupported characters."
+
+
+def test_import_vrm_model_avoids_colliding_with_existing_pack_ids() -> None:
+    first_response = client.post(
+        "/api/packs/import-vrm-model",
+        json={
+            "filename": "Noir.vrm",
+            "model_base64": base64.b64encode(make_vrm_bytes()).decode("ascii"),
+        },
+    )
+    second_response = client.post(
+        "/api/packs/import-vrm-model",
+        json={
+            "filename": "Noir.vrm",
+            "model_base64": base64.b64encode(make_vrm_bytes()).decode("ascii"),
+        },
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert first_response.json()["pack"]["id"] == "noir"
+    assert second_response.json()["pack"]["id"] == "noir-2"
+    assert (
+        second_response.json()["pack"]["model"]["asset_path"] == "models/avatar.vrm"
+    )
+
+
+def test_create_character_pack_builds_from_simple_inputs() -> None:
+    base_response = client.post(
+        "/api/packs/import-vrm-model",
+        json={
+            "filename": "Noir.vrm",
+            "model_base64": base64.b64encode(make_vrm_bytes()).decode("ascii"),
+        },
+    )
+    assert base_response.status_code == 200
+
+    portrait_bytes = base64.b64decode(PNG_1X1_BASE64)
+    response = client.post(
+        "/api/packs/create-character",
+        json={
+            "display_name": "Momo",
+            "summary": "Sharp, expressive, and still grounded on the desk.",
+            "opening_message": "You finally showed up. Sit down.",
+            "scenario": "Waiting on the desk for the next real problem.",
+            "style_notes": ["direct", "protective underneath"],
+            "source_pack_id": "noir",
+            "portrait_filename": "momo.png",
+            "portrait_image_base64": base64.b64encode(portrait_bytes).decode("ascii"),
+            "voice_provider": "chatterbox",
+            "voice_id": "momo-fast",
+            "voice_model_id": "chatterbox-turbo",
+            "voice_locale": "en-US",
+            "voice_style": "expressive",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["active_pack_id"] == "momo"
+    assert payload["pack"]["display_name"] == "Momo"
+    assert payload["pack"]["character_profile"]["origin"] == "builder"
+    assert (
+        payload["pack"]["character_profile"]["opening_message"]
+        == "You finally showed up. Sit down."
+    )
+    assert payload["pack"]["model"]["renderer"] == "vrm"
+    assert payload["pack"]["voice"]["provider"] == "chatterbox"
 
 
 def test_install_pack_rejects_unsupported_capability() -> None:

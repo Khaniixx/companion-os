@@ -102,6 +102,22 @@ export type PackSelectionResponse = {
 export type PackApi = {
   listPacks: () => Promise<PackListResponse>;
   installPack: (filename: string, archiveBase64: string) => Promise<PackInstallResponse>;
+  importVrmModel: (filename: string, modelBase64: string) => Promise<PackInstallResponse>;
+  createCharacterPack: (payload: {
+    display_name: string;
+    summary: string;
+    opening_message?: string | null;
+    scenario?: string | null;
+    style_notes?: string[];
+    source_pack_id?: string | null;
+    portrait_filename?: string | null;
+    portrait_image_base64?: string | null;
+    voice_provider?: string;
+    voice_id?: string;
+    voice_model_id?: string | null;
+    voice_locale?: string | null;
+    voice_style?: string | null;
+  }) => Promise<PackInstallResponse>;
   selectActivePack: (packId: string) => Promise<PackSelectionResponse>;
   importTavernCard: (
     filename: string,
@@ -153,6 +169,21 @@ export const packApi: PackApi = {
         filename,
         archive_base64: archiveBase64,
       }),
+    }),
+  importVrmModel: (filename, modelBase64) =>
+    request<PackInstallResponse>("/api/packs/import-vrm-model", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename,
+        model_base64: modelBase64,
+      }),
+    }),
+  createCharacterPack: (payload) =>
+    request<PackInstallResponse>("/api/packs/create-character", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     }),
   selectActivePack: (packId) =>
     request<PackSelectionResponse>("/api/packs/active", {

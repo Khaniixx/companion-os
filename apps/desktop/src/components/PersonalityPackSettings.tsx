@@ -43,6 +43,9 @@ function formatPackOrigin(pack: InstalledPack): string {
   if (origin === "tavern-card") {
     return "Imported Tavern character";
   }
+  if (origin === "vrm-import") {
+    return "Imported VRM body";
+  }
   if (origin === "default") {
     return "Built-in companion";
   }
@@ -56,6 +59,16 @@ function getCharacterSummary(pack: InstalledPack): string | null {
     pack.system_prompt ??
     null
   );
+}
+
+function describeVoicePreset(provider: string): string {
+  if (provider === "chatterbox") {
+    return "Chatterbox local voice";
+  }
+  if (provider === "style-bert-vits2") {
+    return "Style-Bert-VITS2 character voice";
+  }
+  return "Browser/local fallback voice";
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -94,9 +107,21 @@ export function PersonalityPackSettings({
   const [isLoading, setIsLoading] = useState(true);
   const [isInstallingZip, setIsInstallingZip] = useState(false);
   const [isImportingTavern, setIsImportingTavern] = useState(false);
+  const [isImportingVrm, setIsImportingVrm] = useState(false);
+  const [isCreatingCharacter, setIsCreatingCharacter] = useState(false);
   const [isSelectingPackId, setIsSelectingPackId] = useState<string | null>(null);
   const [zipFile, setZipFile] = useState<File | null>(null);
   const [tavernFile, setTavernFile] = useState<File | null>(null);
+  const [vrmFiles, setVrmFiles] = useState<File[]>([]);
+  const [builderDisplayName, setBuilderDisplayName] = useState("");
+  const [builderSummary, setBuilderSummary] = useState("");
+  const [builderOpening, setBuilderOpening] = useState("");
+  const [builderScenario, setBuilderScenario] = useState("");
+  const [builderStyleNotes, setBuilderStyleNotes] = useState("");
+  const [builderSourcePackId, setBuilderSourcePackId] = useState("");
+  const [builderVoiceProvider, setBuilderVoiceProvider] = useState("local");
+  const [builderVoiceStyle, setBuilderVoiceStyle] = useState("warm");
+  const [builderPortraitFile, setBuilderPortraitFile] = useState<File | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -150,6 +175,32 @@ export function PersonalityPackSettings({
     () => packs.find((pack) => pack.id === activePackId) ?? null,
     [activePackId, packs],
   );
+  const bodySourcePacks = useMemo(
+    () =>
+      packs.filter(
+        (pack) =>
+          pack.model?.renderer === "vrm" &&
+          typeof pack.model.asset_path === "string" &&
+          pack.model.asset_path.length > 0,
+      ),
+    [packs],
+  );
+  const selectedBodySourcePack = useMemo(
+    () => bodySourcePacks.find((pack) => pack.id === builderSourcePackId) ?? null,
+    [bodySourcePacks, builderSourcePackId],
+  );
+  const portraitPreviewUrl = useMemo(
+    () => (builderPortraitFile ? URL.createObjectURL(builderPortraitFile) : null),
+    [builderPortraitFile],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (portraitPreviewUrl) {
+        URL.revokeObjectURL(portraitPreviewUrl);
+      }
+    };
+  }, [portraitPreviewUrl]);
 
   async function handleInstallZip(): Promise<void> {
     if (!zipFile || isInstallingZip) {
@@ -201,6 +252,36 @@ export function PersonalityPackSettings({
     }
   }
 
+  async function handleImportVrm(): Promise<void> {
+    if (vrmFiles.length === 0 || isImportingVrm) {
+      return;
+    }
+
+    try {
+      setIsImportingVrm(true);
+      setError(null);
+      const importedNames: string[] = [];
+      for (const vrmFile of vrmFiles) {
+        const modelBase64 = await fileToBase64(vrmFile);
+        const response = await packApi.importVrmModel(vrmFile.name, modelBase64);
+        importedNames.push(response.pack.display_name);
+      }
+      await refreshPacks();
+      setNotice(
+        importedNames.length === 1
+          ? `${importedNames[0]} was imported as a local VRM companion pack.`
+          : `${importedNames.length} local VRM companion packs were imported.`,
+      );
+      setVrmFiles([]);
+    } catch (importError) {
+      const detail =
+        importError instanceof Error ? importError.message : "Unknown VRM import error";
+      setError(detail);
+    } finally {
+      setIsImportingVrm(false);
+    }
+  }
+
   async function handleSelectPack(packId: string): Promise<void> {
     if (isSelectingPackId || packId === activePackId) {
       return;
@@ -219,6 +300,63 @@ export function PersonalityPackSettings({
       setError(detail);
     } finally {
       setIsSelectingPackId(null);
+    }
+  }
+
+  async function handleCreateCharacterPack(): Promise<void> {
+    if (!builderDisplayName.trim() || !builderSummary.trim() || isCreatingCharacter) {
+      return;
+    }
+
+    try {
+      setIsCreatingCharacter(true);
+      setError(null);
+      const portraitBase64 = builderPortraitFile
+        ? await fileToBase64(builderPortraitFile)
+        : null;
+      const response = await packApi.createCharacterPack({
+        display_name: builderDisplayName,
+        summary: builderSummary,
+        opening_message: builderOpening || null,
+        scenario: builderScenario || null,
+        style_notes: builderStyleNotes
+          .split(",")
+          .map((note) => note.trim())
+          .filter((note) => note.length > 0),
+        source_pack_id: builderSourcePackId || null,
+        portrait_filename: builderPortraitFile?.name ?? null,
+        portrait_image_base64: portraitBase64,
+        voice_provider: builderVoiceProvider,
+        voice_id: builderVoiceProvider === "local" ? "default" : `${builderVoiceProvider}-starter`,
+        voice_model_id:
+          builderVoiceProvider === "chatterbox"
+            ? "chatterbox-turbo"
+            : builderVoiceProvider === "style-bert-vits2"
+              ? "style-bert-vits2"
+              : null,
+        voice_locale: "en-US",
+        voice_style: builderVoiceStyle,
+      });
+      await refreshPacks();
+      setActivePackId(response.active_pack_id);
+      setNotice(`${response.pack.display_name} was built, saved locally, and activated.`);
+      setBuilderDisplayName("");
+      setBuilderSummary("");
+      setBuilderOpening("");
+      setBuilderScenario("");
+      setBuilderStyleNotes("");
+      setBuilderSourcePackId("");
+      setBuilderPortraitFile(null);
+      setBuilderVoiceProvider("local");
+      setBuilderVoiceStyle("warm");
+    } catch (creationError) {
+      const detail =
+        creationError instanceof Error
+          ? creationError.message
+          : "Unknown local character build error";
+      setError(detail);
+    } finally {
+      setIsCreatingCharacter(false);
     }
   }
 
@@ -269,6 +407,187 @@ export function PersonalityPackSettings({
         </article>
 
         <article className="settings-card">
+          <span className="settings-card__label">Companion builder</span>
+          <p>Assemble one usable local character from personality, body, portrait, and voice defaults.</p>
+          <label className="settings-field">
+            <span className="settings-field__label">Character name</span>
+            <input
+              value={builderDisplayName}
+              onChange={(event) => {
+                setBuilderDisplayName(event.target.value);
+              }}
+              placeholder="Momo"
+              type="text"
+            />
+          </label>
+          <label className="settings-field">
+            <span className="settings-field__label">Character summary</span>
+            <textarea
+              rows={3}
+              value={builderSummary}
+              onChange={(event) => {
+                setBuilderSummary(event.target.value);
+              }}
+              placeholder="Sharp, expressive, protective, and still able to stay grounded on the desk."
+            />
+          </label>
+          <label className="settings-field">
+            <span className="settings-field__label">Opening line</span>
+            <textarea
+              rows={2}
+              value={builderOpening}
+              onChange={(event) => {
+                setBuilderOpening(event.target.value);
+              }}
+              placeholder="You finally showed up. Sit down and tell me what the real problem is."
+            />
+          </label>
+          <label className="settings-field">
+            <span className="settings-field__label">Scenario</span>
+            <input
+              value={builderScenario}
+              onChange={(event) => {
+                setBuilderScenario(event.target.value);
+              }}
+              placeholder="On the desk, ready to pick up the next thread with me."
+              type="text"
+            />
+          </label>
+          <label className="settings-field">
+            <span className="settings-field__label">Tone notes</span>
+            <input
+              value={builderStyleNotes}
+              onChange={(event) => {
+                setBuilderStyleNotes(event.target.value);
+              }}
+              placeholder="direct, warm underneath, playful when it fits"
+              type="text"
+            />
+          </label>
+          <label className="settings-field">
+            <span className="settings-field__label">Body source</span>
+            <select
+              value={builderSourcePackId}
+              onChange={(event) => {
+                setBuilderSourcePackId(event.target.value);
+              }}
+            >
+              <option value="">Portrait or shell only</option>
+              {bodySourcePacks.map((pack) => (
+                <option key={pack.id} value={pack.id}>
+                  {pack.display_name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="pack-settings__file-label" htmlFor="builder-portrait-upload">
+            Choose portrait image
+          </label>
+          <input
+            id="builder-portrait-upload"
+            className="pack-settings__file-input"
+            type="file"
+            accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+            onChange={(event) => {
+              setBuilderPortraitFile(event.target.files?.[0] ?? null);
+            }}
+          />
+          <label className="settings-field">
+            <span className="settings-field__label">Voice path</span>
+            <select
+              value={builderVoiceProvider}
+              onChange={(event) => {
+                setBuilderVoiceProvider(event.target.value);
+              }}
+            >
+              <option value="local">Browser/local fallback</option>
+              <option value="chatterbox">Chatterbox</option>
+              <option value="style-bert-vits2">Style-Bert-VITS2</option>
+            </select>
+          </label>
+          <label className="settings-field">
+            <span className="settings-field__label">Voice tone</span>
+            <select
+              value={builderVoiceStyle}
+              onChange={(event) => {
+                setBuilderVoiceStyle(event.target.value);
+              }}
+            >
+              <option value="warm">Warm</option>
+              <option value="direct">Direct</option>
+              <option value="gentle">Gentle</option>
+              <option value="dramatic">Dramatic</option>
+              <option value="expressive">Expressive</option>
+            </select>
+          </label>
+          <div className="pack-card pack-card--builder-preview">
+            <div className="pack-card__header">
+              <div className="pack-card__identity">
+                {portraitPreviewUrl ? (
+                  <div
+                    className="pack-card__icon pack-card__icon--placeholder"
+                    aria-label="Portrait selected"
+                  >
+                    IMG
+                  </div>
+                ) : (
+                  <div className="pack-card__icon pack-card__icon--placeholder">
+                    {(builderDisplayName || "C").slice(0, 1).toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <strong>{builderDisplayName || "Draft companion"}</strong>
+                  <p>
+                    {selectedBodySourcePack ? (
+                      <>
+                        <span>Uses </span>
+                        <span>{selectedBodySourcePack.display_name}</span>
+                        <span> as the VRM body</span>
+                      </>
+                    ) : (
+                      "Portrait or shell presentation"
+                    )}
+                  </p>
+                </div>
+              </div>
+              <span className="pack-card__badge pack-card__badge--available">Preview</span>
+            </div>
+            <div className="pack-card__meta">
+              <span>{describeVoicePreset(builderVoiceProvider)}</span>
+              <span>{builderVoiceStyle}</span>
+              <span>{builderPortraitFile ? "Portrait ready" : "No portrait yet"}</span>
+            </div>
+            <div className="pack-card__character">
+              <span className="pack-card__character-label">First hello</span>
+              <p>
+                {builderOpening ||
+                  "Give this companion an opening line so the first hello feels personal immediately."}
+              </p>
+              {builderSummary ? (
+                <p className="pack-card__character-detail">
+                  <strong>Character read:</strong> {builderSummary}
+                </p>
+              ) : null}
+              {builderScenario ? (
+                <p className="pack-card__character-detail">
+                  <strong>Scenario:</strong> {builderScenario}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <button
+            className="settings-action-button settings-action-button--primary"
+            disabled={!builderDisplayName.trim() || !builderSummary.trim() || isCreatingCharacter}
+            type="button"
+            onClick={() => {
+              void handleCreateCharacterPack();
+            }}
+          >
+            {isCreatingCharacter ? "Building character..." : "Build and use this companion"}
+          </button>
+        </article>
+
+        <article className="settings-card">
           <span className="settings-card__label">Import Tavern card</span>
           <p>Convert a Tavern Card V2 or V3 PNG into a local companion pack.</p>
           <label className="pack-settings__file-label" htmlFor="tavern-card-upload">
@@ -297,6 +616,48 @@ export function PersonalityPackSettings({
             <p className="pack-settings__file-name">{tavernFile.name}</p>
           ) : null}
         </article>
+
+        <article className="settings-card">
+          <span className="settings-card__label">Import VRM body</span>
+          <p>
+            Turn one or more local `.vrm` files into selectable companion packs with a
+            VRM stage body.
+          </p>
+          <label className="pack-settings__file-label" htmlFor="vrm-model-upload">
+            Choose VRM files
+          </label>
+          <input
+            id="vrm-model-upload"
+            className="pack-settings__file-input"
+            type="file"
+            accept=".vrm,model/gltf-binary,application/octet-stream"
+            multiple
+            onChange={(event) => {
+              setVrmFiles(Array.from(event.target.files ?? []));
+            }}
+          />
+          <button
+            className="settings-action-button"
+            disabled={vrmFiles.length === 0 || isImportingVrm}
+            type="button"
+            onClick={() => {
+              void handleImportVrm();
+            }}
+          >
+            {isImportingVrm
+              ? "Importing VRM..."
+              : vrmFiles.length > 1
+                ? "Import selected VRMs"
+                : "Import VRM"}
+          </button>
+          {vrmFiles.length > 0 ? (
+            <p className="pack-settings__file-name">
+              {vrmFiles.length === 1
+                ? vrmFiles[0]?.name
+                : `${vrmFiles.length} VRM files selected`}
+            </p>
+          ) : null}
+        </article>
       </div>
 
       {isLoading ? (
@@ -305,8 +666,8 @@ export function PersonalityPackSettings({
         <div className="settings-card">
           <span className="settings-card__label">Local library</span>
           <p>
-            No personality packs are installed yet. Import a signed zip or convert a
-            Tavern Card to get started.
+            No personality packs are installed yet. Import a signed zip, convert a
+            Tavern Card, or bring in a VRM body to get started.
           </p>
         </div>
       ) : (
