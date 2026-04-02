@@ -537,9 +537,15 @@ export function PersonalityPackSettings({
                 <div>
                   <strong>{builderDisplayName || "Draft companion"}</strong>
                   <p>
-                    {selectedBodySourcePack
-                      ? `Uses ${selectedBodySourcePack.display_name} as the VRM body`
-                      : "Portrait or shell presentation"}
+                    {selectedBodySourcePack ? (
+                      <>
+                        <span>Uses </span>
+                        <span>{selectedBodySourcePack.display_name}</span>
+                        <span> as the VRM body</span>
+                      </>
+                    ) : (
+                      "Portrait or shell presentation"
+                    )}
                   </p>
                 </div>
               </div>

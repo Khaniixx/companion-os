@@ -1433,7 +1433,7 @@ def _build_imported_vrm_manifest(
     *,
     filename: str,
     vrm_bytes: bytes,
-) -> tuple[dict[str, object], str]:
+) -> dict[str, object]:
     display_name = _display_name_from_filename(filename)
     pack_id = _unique_pack_id(_slugify_pack_id(display_name))
     model_filename = "avatar.vrm"
@@ -1554,7 +1554,7 @@ def _build_imported_vrm_manifest(
     manifest["security"]["signature"]["value"] = (
         base64.urlsafe_b64encode(signature_bytes).rstrip(b"=").decode("ascii")
     )
-    return manifest, model_filename
+    return manifest
 
 
 def _build_character_system_prompt(
@@ -1647,7 +1647,7 @@ def import_vrm_model(*, filename: str, vrm_bytes: bytes) -> dict[str, object]:
         raise ValueError("VRM import requires file data.")
 
     with _pack_lock:
-        manifest, model_filename = _build_imported_vrm_manifest(
+        manifest = _build_imported_vrm_manifest(
             filename=normalized_filename,
             vrm_bytes=vrm_bytes,
         )
@@ -1656,7 +1656,7 @@ def import_vrm_model(*, filename: str, vrm_bytes: bytes) -> dict[str, object]:
             pack_root = Path(temp_dir_name)
             models_dir = pack_root / "models"
             models_dir.mkdir(parents=True, exist_ok=True)
-            (models_dir / model_filename).write_bytes(vrm_bytes)
+            (models_dir / "avatar.vrm").write_bytes(vrm_bytes)
             (pack_root / "pack.json").write_text(
                 json.dumps(manifest, indent=2),
                 encoding="utf-8",
@@ -1894,7 +1894,7 @@ def create_local_character_pack(
                 json.dumps(manifest, indent=2),
                 encoding="utf-8",
             )
-            summary_result = _install_from_directory(
+            _install_from_directory(
                 pack_root,
                 source="builder",
                 archive_name=f"{normalized_pack_id}.json",
