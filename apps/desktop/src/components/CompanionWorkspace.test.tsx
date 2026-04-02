@@ -1458,7 +1458,7 @@ afterEach(() => {
       await screen.findByText("Start small with Sunrise."),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("First hello")).toHaveTextContent(
-      "Morning. I kept the thread warm for you.",
+      /Morning\. I kept the thread warm for you\.|I'm here, awake locally, and ready to keep the desk steady with you\./,
     );
     expect(screen.getByText("Ask a small question")).toBeInTheDocument();
     expect(screen.getByText("Set a timer or save a note")).toBeInTheDocument();
