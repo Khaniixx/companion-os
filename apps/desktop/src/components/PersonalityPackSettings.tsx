@@ -524,11 +524,12 @@ export function PersonalityPackSettings({
             <div className="pack-card__header">
               <div className="pack-card__identity">
                 {portraitPreviewUrl ? (
-                  <img
-                    className="pack-card__icon"
-                    src={portraitPreviewUrl}
-                    alt={`${builderDisplayName || "Draft"} portrait`}
-                  />
+                  <div
+                    className="pack-card__icon pack-card__icon--placeholder"
+                    aria-label="Portrait selected"
+                  >
+                    IMG
+                  </div>
                 ) : (
                   <div className="pack-card__icon pack-card__icon--placeholder">
                     {(builderDisplayName || "C").slice(0, 1).toUpperCase()}
