@@ -326,6 +326,31 @@ def test_import_vrm_model_sanitizes_path_like_filename() -> None:
     assert payload["pack"]["model"]["asset_path"] == "models/noir.vrm"
 
 
+def test_import_vrm_model_avoids_colliding_with_existing_pack_ids() -> None:
+    first_response = client.post(
+        "/api/packs/import-vrm-model",
+        json={
+            "filename": "Noir.vrm",
+            "model_base64": base64.b64encode(make_vrm_bytes()).decode("ascii"),
+        },
+    )
+    second_response = client.post(
+        "/api/packs/import-vrm-model",
+        json={
+            "filename": "Noir.vrm",
+            "model_base64": base64.b64encode(make_vrm_bytes()).decode("ascii"),
+        },
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert first_response.json()["pack"]["id"] == "noir"
+    assert second_response.json()["pack"]["id"] == "noir-2"
+    assert (
+        second_response.json()["pack"]["model"]["asset_path"] == "models/noir-2.vrm"
+    )
+
+
 def test_create_character_pack_builds_from_simple_inputs() -> None:
     base_response = client.post(
         "/api/packs/import-vrm-model",

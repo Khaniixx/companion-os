@@ -56,6 +56,32 @@ def test_disabling_long_term_memory_skips_new_summaries() -> None:
     assert state["pack_pending_message_count"] == 0
 
 
+def test_disabling_long_term_memory_clears_existing_pack_pending_messages() -> None:
+    preferences.update_memory_settings(summary_frequency_messages=99)
+    preferences.set_active_pack_id("sunrise-companion")
+
+    memory_manager.record_chat_turn(
+        "keep this only briefly",
+        "I will hold it in the live thread for now.",
+    )
+    state_before_disable = memory_manager.list_memory_state(
+        active_pack_id="sunrise-companion"
+    )
+    assert state_before_disable["pending_message_count"] == 2
+    assert state_before_disable["pack_pending_message_count"] == 2
+
+    preferences.update_memory_settings(long_term_memory_enabled=False)
+    created_summary = memory_manager.record_chat_turn(
+        "do not keep this",
+        "Understood.",
+    )
+
+    assert created_summary is None
+    state = memory_manager.list_memory_state(active_pack_id="sunrise-companion")
+    assert state["pending_message_count"] == 0
+    assert state["pack_pending_message_count"] == 0
+
+
 def test_update_and_delete_memory_summary() -> None:
     preferences.update_memory_settings(summary_frequency_messages=2)
     created_summary = memory_manager.record_chat_turn(

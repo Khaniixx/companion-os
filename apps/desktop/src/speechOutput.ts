@@ -1,6 +1,7 @@
 export type SpeechOutputSupport = {
   synthesis: boolean;
   voices: boolean;
+  audioPlayback: boolean;
 };
 
 export type SpeechOutputStatus = "idle" | "starting" | "speaking" | "error" | "unsupported";
@@ -100,10 +101,12 @@ export function getSpeechOutputSupport(
     typeof sourceWindow.speechSynthesis !== "undefined" &&
     sourceWindow.speechSynthesis !== null;
   const voices = synthesis && sourceWindow.speechSynthesis.getVoices().length > 0;
+  const audioPlayback = typeof sourceWindow.Audio === "function";
 
   return {
     synthesis,
     voices,
+    audioPlayback,
   };
 }
 

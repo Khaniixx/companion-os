@@ -332,8 +332,13 @@ def record_chat_turn(user_message: str, assistant_response: str) -> MemorySummar
     if not bool(settings["long_term_memory_enabled"]):
         with _memory_lock:
             state = _read_state()
-            if state["pending_messages"]:
+            has_pending_pack_messages = any(
+                thread["pending_messages"] for thread in state["pack_threads"].values()
+            )
+            if state["pending_messages"] or has_pending_pack_messages:
                 state["pending_messages"] = []
+                for pack_thread in state["pack_threads"].values():
+                    pack_thread["pending_messages"] = []
                 _write_state(state)
         return None
 

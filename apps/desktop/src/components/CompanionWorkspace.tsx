@@ -425,7 +425,15 @@ function getSpeechOutputReadinessLabel(
   if (outputStatus === "error") {
     return "Voice needs attention";
   }
-  if (!support.synthesis) {
+  if (
+    !support.synthesis &&
+    !(
+      voiceStatus?.output_mode === "pack" &&
+      voiceStatus.local_engine_ready &&
+      voiceStatus.provider === "chatterbox" &&
+      support.audioPlayback
+    )
+  ) {
     return "Voice unsupported";
   }
   if (voiceStatus?.state === "configured") {
@@ -470,6 +478,18 @@ function getSpeechOutputSupportLabel(
     return "Browser speech playback is available for quick local voice checks.";
   }
   return `${voiceStatus?.display_name ?? "Aster"} can speak through the browser voice surface once voices finish loading.`;
+}
+
+function canUseLocalPackVoicePlayback(
+  voiceStatus: VoiceStatus | null,
+  support: SpeechOutputSupport,
+): boolean {
+  return (
+    voiceStatus?.output_mode === "pack" &&
+    voiceStatus.local_engine_ready &&
+    voiceStatus.provider === "chatterbox" &&
+    support.audioPlayback
+  );
 }
 
 function getSpeechOutputIdentityLabel(voiceStatus: VoiceStatus | null): string {
@@ -844,6 +864,17 @@ export function CompanionWorkspace() {
       return currentMessages;
     });
   }, [activePack]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const nextMemorySummaryState = await memoryApi.listSummaries();
+        setMemorySummaryState(nextMemorySummaryState);
+      } catch {
+        // Keep the current continuity snapshot if local memory is temporarily unavailable.
+      }
+    })();
+  }, [activePack?.id]);
 
   useEffect(() => {
     return () => {
@@ -1779,7 +1810,11 @@ export function CompanionWorkspace() {
       return false;
     }
 
-    if (!speechOutputSupport.synthesis) {
+    const localPackVoiceReady = canUseLocalPackVoicePlayback(
+      voiceStatus,
+      speechOutputSupport,
+    );
+    if (!speechOutputSupport.synthesis && !localPackVoiceReady) {
       setSettingsNotice("Browser speech playback is not available in this shell.");
       setSpeechOutputStatus("unsupported");
       return false;
@@ -2839,6 +2874,7 @@ export function CompanionWorkspace() {
                     isSavingVoice ||
                     !(voiceStatus?.enabled ?? false) ||
                     (!speechOutputSupport.synthesis &&
+                      !canUseLocalPackVoicePlayback(voiceStatus, speechOutputSupport) &&
                       speechOutputStatus !== "speaking" &&
                       speechOutputStatus !== "starting")
                   }
@@ -2858,6 +2894,7 @@ export function CompanionWorkspace() {
                     lastCompanionMessage === undefined ||
                     !(voiceStatus?.enabled ?? false) ||
                     (!speechOutputSupport.synthesis &&
+                      !canUseLocalPackVoicePlayback(voiceStatus, speechOutputSupport) &&
                       speechOutputStatus !== "speaking" &&
                       speechOutputStatus !== "starting")
                   }

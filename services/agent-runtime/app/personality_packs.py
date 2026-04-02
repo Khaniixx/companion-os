@@ -1427,7 +1427,7 @@ def _build_imported_vrm_manifest(
     vrm_bytes: bytes,
 ) -> tuple[dict[str, object], str]:
     display_name = _display_name_from_filename(filename)
-    pack_id = _slugify_pack_id(display_name)
+    pack_id = _unique_pack_id(_slugify_pack_id(display_name))
     model_filename = f"{pack_id}.vrm"
     model_path = f"models/{model_filename}"
     summary = (
@@ -1643,12 +1643,16 @@ def import_vrm_model(*, filename: str, vrm_bytes: bytes) -> dict[str, object]:
             filename=normalized_filename,
             vrm_bytes=vrm_bytes,
         )
+        safe_model_filename = _sanitize_uploaded_filename(
+            model_filename,
+            required_suffix=".vrm",
+        )
 
         with tempfile.TemporaryDirectory() as temp_dir_name:
             pack_root = Path(temp_dir_name)
             models_dir = pack_root / "models"
             models_dir.mkdir(parents=True, exist_ok=True)
-            (models_dir / model_filename).write_bytes(vrm_bytes)
+            (models_dir / safe_model_filename).write_bytes(vrm_bytes)
             (pack_root / "pack.json").write_text(
                 json.dumps(manifest, indent=2),
                 encoding="utf-8",

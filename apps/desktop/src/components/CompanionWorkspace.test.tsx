@@ -11,6 +11,7 @@ const mockGetSpeechInputSupport = vi.fn(() => ({
 const mockGetSpeechOutputSupport = vi.fn(() => ({
   synthesis: true,
   voices: true,
+  audioPlayback: true,
 }));
 const mockSpeechOutputStop = vi.fn();
 const mockStartSpeechOutput = vi.fn(({ onStatusChange, onProgress, text }) => {
@@ -1357,6 +1358,7 @@ afterEach(() => {
   mockGetSpeechOutputSupport.mockReturnValue({
     synthesis: true,
     voices: true,
+    audioPlayback: true,
   });
   mockSpeechOutputStop.mockReset();
   mockStartSpeechInputSession.mockReset();
@@ -1989,6 +1991,49 @@ afterEach(() => {
         voiceHint: "sunrise",
       }),
     );
+    expect(
+      screen.getByText("Reading the latest reply in Sunrise's voice."),
+    ).toBeInTheDocument();
+  });
+
+  it("allows ready local pack voice playback even when browser synthesis is unavailable", async () => {
+    createFetchMock({
+      voiceStatus: {
+        enabled: true,
+        autoplay_enabled: false,
+        output_mode: "pack",
+        available: true,
+        state: "ready",
+        provider: "chatterbox",
+        voice_id: "momo-fast",
+        model_id: "chatterbox-turbo",
+        locale: "en-US",
+        style: "expressive",
+        fallback_provider: "browser",
+        reference_ready: true,
+        rvc_enabled: false,
+        rvc_model_id: null,
+        rvc_ready: false,
+        local_engine_ready: true,
+        display_name: "Sunrise",
+        message: "Sunrise's Chatterbox voice bridge is ready for local playback.",
+      },
+    });
+    mockGetSpeechOutputSupport.mockReturnValueOnce({
+      synthesis: false,
+      voices: false,
+      audioPlayback: true,
+    });
+    const user = userEvent.setup();
+
+    render(<CompanionWorkspace />);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Read latest reply" }));
+
+    await waitFor(() => {
+      expect(mockStartSpeechOutput).toHaveBeenCalled();
+    });
     expect(
       screen.getByText("Reading the latest reply in Sunrise's voice."),
     ).toBeInTheDocument();
