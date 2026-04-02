@@ -1,0 +1,41 @@
+<svg width="1024" height="1024" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="NexaCore logo v1">
+  <defs>
+    <linearGradient id="g1" x1="96" y1="96" x2="416" y2="416" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#22D3EE"/>
+      <stop offset="100%" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <filter id="glow1" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="#070B1A"/>
+  <g stroke="url(#g1)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none" filter="url(#glow1)">
+    <circle cx="256" cy="256" r="66"/>
+    <circle cx="256" cy="256" r="46" opacity="0.95"/>
+    <path d="M256 110 V178"/>
+    <circle cx="256" cy="92" r="14" fill="#070B1A"/>
+    <path d="M198 128 L218 150 V176"/>
+    <circle cx="189" cy="109" r="14" fill="#070B1A"/>
+    <path d="M314 128 L294 150 V176"/>
+    <circle cx="323" cy="109" r="14" fill="#070B1A"/>
+    <path d="M110 256 H178"/>
+    <circle cx="92" cy="256" r="14" fill="#070B1A"/>
+    <path d="M128 198 L150 218 H176"/>
+    <circle cx="109" cy="189" r="14" fill="#070B1A"/>
+    <path d="M128 314 L150 294 H176"/>
+    <circle cx="109" cy="323" r="14" fill="#070B1A"/>
+    <path d="M334 256 H402"/>
+    <circle cx="420" cy="256" r="14" fill="#070B1A"/>
+    <path d="M336 218 H362 L384 198"/>
+    <circle cx="403" cy="189" r="14" fill="#070B1A"/>
+    <path d="M336 294 H362 L384 314"/>
+    <circle cx="403" cy="323" r="14" fill="#070B1A"/>
+    <path d="M256 334 V402"/>
+    <circle cx="256" cy="420" r="14" fill="#070B1A"/>
+    <path d="M218 336 V362 L198 384"/>
+    <circle cx="189" cy="403" r="14" fill="#070B1A"/>
+    <path d="M294 336 V362 L314 384"/>
+    <circle cx="323" cy="403" r="14" fill="#070B1A"/>
+  </g>
+</svg>

@@ -9,6 +9,7 @@ import {
   marketplaceApi as defaultMarketplaceApi,
   type MarketplaceApi,
 } from "../marketplaceApi";
+import nexaCoreLogo from "../assets/nexacore-logo-v1-core-network.svg";
 import { MarketplaceBrowser } from "./MarketplaceBrowser";
 
 type PersonalityPackSettingsProps = {
@@ -52,11 +53,11 @@ function formatPackOrigin(pack: InstalledPack): string {
   return "Pack-defined character";
 }
 
-function getCharacterSummary(pack: InstalledPack): string | null {
+function getCharacterSummary(pack: InstalledPack | null): string | null {
   return (
-    pack.character_profile?.summary ??
-    pack.character_profile?.persona ??
-    pack.system_prompt ??
+    pack?.character_profile?.summary ??
+    pack?.character_profile?.persona ??
+    pack?.system_prompt ??
     null
   );
 }
@@ -405,223 +406,296 @@ export function PersonalityPackSettings({
         capabilities, and avatar assets while preserving one continuous companion.
       </p>
 
-      <article className="pack-studio-hero">
-        <div className="pack-studio-hero__copy">
-          <span className="eyebrow">Pack Studio</span>
-          <h4>Turn raw character pieces into one companion you can actually keep around.</h4>
+      <article className="nexacore-hero">
+        <div className="nexacore-hero__brand">
+          <div className="nexacore-hero__brand-lockup">
+            <img
+              className="nexacore-hero__logo"
+              src={nexaCoreLogo}
+              alt="NexaCore logo"
+            />
+            <div>
+              <span className="eyebrow">NexaCore</span>
+              <h4>Build one persistent companion, not a pile of disconnected assets.</h4>
+            </div>
+          </div>
           <p>
-            Start from a personality, attach a body or portrait, choose how the voice
-            should land, then activate the result as the same persistent companion on
-            this desk.
+            Bring in a personality, attach a body or portrait, tune the voice, and
+            activate the result as one continuous being on your desk.
           </p>
-          <div className="pack-studio-hero__points" aria-label="Pack Studio highlights">
-            <span>Tavern personality imports</span>
-            <span>Portrait-first fallback</span>
-            <span>VRM body linking</span>
-            <span>Local-first voice paths</span>
+          <div className="nexacore-hero__signals" aria-label="NexaCore traits">
+            <span>Local-first</span>
+            <span>Character-led</span>
+            <span>Portrait or VRM</span>
+            <span>Pack-aware voice</span>
+          </div>
+          <div className="nexacore-hero__active">
+            <span className="nexacore-hero__active-label">Current desk identity</span>
+            <strong>{activePack ? "Pack ready" : "No active pack yet"}</strong>
+            <p>
+              {getCharacterSummary(activePack) ??
+                "Start with a personality source or build a draft character below."}
+            </p>
           </div>
         </div>
-        <div className="pack-studio-hero__status" aria-label="Draft readiness">
-          {builderReadiness.map((item) => (
-            <div className="pack-studio-hero__status-item" key={item.label}>
-              <strong>{item.ready ? "Ready" : "Needs work"}</strong>
-              <span>{item.label}</span>
-              <p>{item.detail}</p>
-            </div>
-          ))}
+
+        <div className="nexacore-poster" aria-label="Draft companion preview">
+          <div className="nexacore-poster__orbital">
+            {portraitPreviewUrl ? (
+              <div className="nexacore-poster__portrait" aria-label="Portrait selected">
+                Portrait ready
+              </div>
+            ) : (
+              <div className="nexacore-poster__portrait nexacore-poster__portrait--placeholder">
+                {(builderCompanionName || "N").slice(0, 1).toUpperCase()}
+              </div>
+            )}
+          </div>
+
+          <div className="nexacore-poster__copy">
+            <span className="eyebrow">Draft signal</span>
+            <strong>{builderCompanionName}</strong>
+            <p>
+              {builderSummary.trim() ||
+                "Give this draft a sharper read so the desk feels like a real character instead of a placeholder."}
+            </p>
+          </div>
+
+          <div className="nexacore-poster__meta">
+            <span>{selectedBodySourcePack ? selectedBodySourcePack.display_name : "Portrait-first shell"}</span>
+            <span>{describeVoicePreset(builderVoiceProvider)}</span>
+            <span>{builderVoiceStyle}</span>
+          </div>
+
+          <div className="nexacore-poster__hello">
+            <span className="pack-card__character-label">First hello</span>
+            <p>{builderFirstHello}</p>
+          </div>
+
+          <div className="nexacore-poster__status" aria-label="Draft readiness">
+            {builderReadiness.map((item) => (
+              <div className="nexacore-poster__status-item" key={item.label}>
+                <strong>{item.label}</strong>
+                <span>{item.ready ? "Ready" : "Needs work"}</span>
+                <p>{item.detail}</p>
+              </div>
+            ))}
+          </div>
+
+          <button
+            className="settings-action-button settings-action-button--primary"
+            disabled={!builderDisplayName.trim() || !builderSummary.trim() || isCreatingCharacter}
+            type="button"
+            onClick={() => {
+              void handleCreateCharacterPack();
+            }}
+          >
+            {isCreatingCharacter ? "Building character..." : "Build and use this companion"}
+          </button>
         </div>
       </article>
 
-      <div className="pack-studio-layout">
-        <div className="pack-studio-sources">
-          <article className="settings-card pack-source-card">
-            <span className="settings-card__label">Start from a pack zip</span>
-            <p>Install a signed companion pack when you already have a complete local bundle.</p>
-            <label className="pack-settings__file-label" htmlFor="pack-zip-upload">
-              Choose zip archive
-            </label>
-            <input
-              id="pack-zip-upload"
-              className="pack-settings__file-input"
-              type="file"
-              accept=".zip,application/zip"
-              onChange={(event) => {
-                setZipFile(event.target.files?.[0] ?? null);
-              }}
-            />
-            <button
-              className="settings-action-button settings-action-button--primary"
-              disabled={!zipFile || isInstallingZip}
-              type="button"
-              onClick={() => {
-                void handleInstallZip();
-              }}
-            >
-              {isInstallingZip ? "Installing pack..." : "Install pack"}
-            </button>
-            {zipFile ? <p className="pack-settings__file-name">{zipFile.name}</p> : null}
-          </article>
-
-          <article className="settings-card pack-source-card">
-            <span className="settings-card__label">Start from a Tavern card</span>
-            <p>Convert a Tavern Card V2 or V3 PNG into a local companion identity you can keep shaping.</p>
-            <label className="pack-settings__file-label" htmlFor="tavern-card-upload">
-              Choose Tavern PNG
-            </label>
-            <input
-              id="tavern-card-upload"
-              className="pack-settings__file-input"
-              type="file"
-              accept=".png,image/png"
-              onChange={(event) => {
-                setTavernFile(event.target.files?.[0] ?? null);
-              }}
-            />
-            <button
-              className="settings-action-button"
-              disabled={!tavernFile || isImportingTavern}
-              type="button"
-              onClick={() => {
-                void handleImportTavern();
-              }}
-            >
-              {isImportingTavern ? "Converting card..." : "Convert and install"}
-            </button>
-            {tavernFile ? (
-              <p className="pack-settings__file-name">{tavernFile.name}</p>
-            ) : null}
-          </article>
-
-          <article className="settings-card pack-source-card">
-            <span className="settings-card__label">Add a VRM body</span>
-            <p>
-              Turn one or more local `.vrm` files into selectable body packs that can
-              be linked into a character build.
-            </p>
-            <label className="pack-settings__file-label" htmlFor="vrm-model-upload">
-              Choose VRM files
-            </label>
-            <input
-              id="vrm-model-upload"
-              className="pack-settings__file-input"
-              type="file"
-              accept=".vrm,model/gltf-binary,application/octet-stream"
-              multiple
-              onChange={(event) => {
-                setVrmFiles(Array.from(event.target.files ?? []));
-              }}
-            />
-            <button
-              className="settings-action-button"
-              disabled={vrmFiles.length === 0 || isImportingVrm}
-              type="button"
-              onClick={() => {
-                void handleImportVrm();
-              }}
-            >
-              {isImportingVrm
-                ? "Importing VRM..."
-                : vrmFiles.length > 1
-                  ? "Import selected VRMs"
-                  : "Import VRM"}
-            </button>
-            {vrmFiles.length > 0 ? (
-              <p className="pack-settings__file-name">
-                {vrmFiles.length === 1
-                  ? vrmFiles[0]?.name
-                  : `${vrmFiles.length} VRM files selected`}
-              </p>
-            ) : null}
-          </article>
-        </div>
-
-        <article className="settings-card pack-builder-card">
-          <div className="pack-builder-card__header">
-            <div>
-              <span className="settings-card__label">Companion builder</span>
-              <h4>Shape one usable local character.</h4>
-            </div>
-            <span className="pack-card__badge pack-card__badge--available">Draft</span>
+      <div className="nexacore-studio-grid">
+        <article className="settings-card nexacore-stage-card">
+          <div className="nexacore-stage-card__header">
+            <span className="settings-card__label">Stage 1</span>
+            <h4>Choose a source path</h4>
           </div>
-
-          <div className="pack-builder-card__grid">
-            <section className="pack-builder-card__section">
-              <span className="pack-builder-card__eyebrow">Identity</span>
-              <label className="settings-field">
-                <span className="settings-field__label">Character name</span>
-                <input
-                  value={builderDisplayName}
-                  onChange={(event) => {
-                    setBuilderDisplayName(event.target.value);
-                  }}
-                  placeholder="Momo"
-                  type="text"
-                />
+          <p className="nexacore-stage-card__intro">
+            Start from whatever you already have. NexaCore should make that usable
+            quickly instead of forcing a manual pack format first.
+          </p>
+          <div className="nexacore-source-list">
+            <section className="nexacore-source-item">
+              <div>
+                <strong>Complete pack</strong>
+                <p>Install a signed local bundle when the character is already assembled.</p>
+              </div>
+              <label className="pack-settings__file-label" htmlFor="pack-zip-upload">
+                Choose zip archive
               </label>
-              <label className="settings-field">
-                <span className="settings-field__label">Character summary</span>
-                <textarea
-                  rows={3}
-                  value={builderSummary}
-                  onChange={(event) => {
-                    setBuilderSummary(event.target.value);
-                  }}
-                  placeholder="Sharp, expressive, protective, and still able to stay grounded on the desk."
-                />
-              </label>
-              <label className="settings-field">
-                <span className="settings-field__label">Opening line</span>
-                <textarea
-                  rows={2}
-                  value={builderOpening}
-                  onChange={(event) => {
-                    setBuilderOpening(event.target.value);
-                  }}
-                  placeholder="You finally showed up. Sit down and tell me what the real problem is."
-                />
-              </label>
-              <label className="settings-field">
-                <span className="settings-field__label">Scenario</span>
-                <input
-                  value={builderScenario}
-                  onChange={(event) => {
-                    setBuilderScenario(event.target.value);
-                  }}
-                  placeholder="On the desk, ready to pick up the next thread with me."
-                  type="text"
-                />
-              </label>
-              <label className="settings-field">
-                <span className="settings-field__label">Tone notes</span>
-                <input
-                  value={builderStyleNotes}
-                  onChange={(event) => {
-                    setBuilderStyleNotes(event.target.value);
-                  }}
-                  placeholder="direct, warm underneath, playful when it fits"
-                  type="text"
-                />
-              </label>
+              <input
+                id="pack-zip-upload"
+                className="pack-settings__file-input"
+                type="file"
+                accept=".zip,application/zip"
+                onChange={(event) => {
+                  setZipFile(event.target.files?.[0] ?? null);
+                }}
+              />
+              <button
+                className="settings-action-button settings-action-button--primary"
+                disabled={!zipFile || isInstallingZip}
+                type="button"
+                onClick={() => {
+                  void handleInstallZip();
+                }}
+              >
+                {isInstallingZip ? "Installing pack..." : "Install pack"}
+              </button>
+              {zipFile ? <p className="pack-settings__file-name">{zipFile.name}</p> : null}
             </section>
 
-            <section className="pack-builder-card__section">
-              <span className="pack-builder-card__eyebrow">Embodiment</span>
-              <label className="settings-field">
-                <span className="settings-field__label">Body source</span>
-                <select
-                  value={builderSourcePackId}
-                  onChange={(event) => {
-                    setBuilderSourcePackId(event.target.value);
-                  }}
-                >
-                  <option value="">Portrait or shell only</option>
-                  {bodySourcePacks.map((pack) => (
-                    <option key={pack.id} value={pack.id}>
-                      {pack.display_name}
-                    </option>
-                  ))}
-                </select>
+            <section className="nexacore-source-item">
+              <div>
+                <strong>Tavern character</strong>
+                <p>Convert a Tavern PNG into a local character shell you can keep shaping.</p>
+              </div>
+              <label className="pack-settings__file-label" htmlFor="tavern-card-upload">
+                Choose Tavern PNG
               </label>
+              <input
+                id="tavern-card-upload"
+                className="pack-settings__file-input"
+                type="file"
+                accept=".png,image/png"
+                onChange={(event) => {
+                  setTavernFile(event.target.files?.[0] ?? null);
+                }}
+              />
+              <button
+                className="settings-action-button"
+                disabled={!tavernFile || isImportingTavern}
+                type="button"
+                onClick={() => {
+                  void handleImportTavern();
+                }}
+              >
+                {isImportingTavern ? "Converting card..." : "Convert and install"}
+              </button>
+              {tavernFile ? <p className="pack-settings__file-name">{tavernFile.name}</p> : null}
+            </section>
+
+            <section className="nexacore-source-item">
+              <div>
+                <strong>VRM body library</strong>
+                <p>Import one or more local VRM bodies so they can be linked into character builds.</p>
+              </div>
+              <label className="pack-settings__file-label" htmlFor="vrm-model-upload">
+                Choose VRM files
+              </label>
+              <input
+                id="vrm-model-upload"
+                className="pack-settings__file-input"
+                type="file"
+                accept=".vrm,model/gltf-binary,application/octet-stream"
+                multiple
+                onChange={(event) => {
+                  setVrmFiles(Array.from(event.target.files ?? []));
+                }}
+              />
+              <button
+                className="settings-action-button"
+                disabled={vrmFiles.length === 0 || isImportingVrm}
+                type="button"
+                onClick={() => {
+                  void handleImportVrm();
+                }}
+              >
+                {isImportingVrm
+                  ? "Importing VRM..."
+                  : vrmFiles.length > 1
+                    ? "Import selected VRMs"
+                    : "Import VRM"}
+              </button>
+              {vrmFiles.length > 0 ? (
+                <p className="pack-settings__file-name">
+                  {vrmFiles.length === 1
+                    ? vrmFiles[0]?.name
+                    : `${vrmFiles.length} VRM files selected`}
+                </p>
+              ) : null}
+            </section>
+          </div>
+        </article>
+
+        <article className="settings-card nexacore-stage-card">
+          <div className="nexacore-stage-card__header">
+            <span className="settings-card__label">Stage 2</span>
+            <h4>Define the character core</h4>
+          </div>
+          <div className="nexacore-form-grid">
+            <label className="settings-field nexacore-field nexacore-field--span-2">
+              <span className="settings-field__label">Character name</span>
+              <input
+                value={builderDisplayName}
+                onChange={(event) => {
+                  setBuilderDisplayName(event.target.value);
+                }}
+                placeholder="Momo"
+                type="text"
+              />
+            </label>
+            <label className="settings-field nexacore-field nexacore-field--span-2">
+              <span className="settings-field__label">Character summary</span>
+              <textarea
+                rows={4}
+                value={builderSummary}
+                onChange={(event) => {
+                  setBuilderSummary(event.target.value);
+                }}
+                placeholder="Sharp, expressive, protective, and still able to stay grounded on the desk."
+              />
+            </label>
+            <label className="settings-field nexacore-field nexacore-field--span-2">
+              <span className="settings-field__label">Opening line</span>
+              <textarea
+                rows={3}
+                value={builderOpening}
+                onChange={(event) => {
+                  setBuilderOpening(event.target.value);
+                }}
+                placeholder="You finally showed up. Sit down and tell me what the real problem is."
+              />
+            </label>
+            <label className="settings-field nexacore-field">
+              <span className="settings-field__label">Scenario</span>
+              <input
+                value={builderScenario}
+                onChange={(event) => {
+                  setBuilderScenario(event.target.value);
+                }}
+                placeholder="On the desk, ready to pick up the next thread with me."
+                type="text"
+              />
+            </label>
+            <label className="settings-field nexacore-field">
+              <span className="settings-field__label">Tone notes</span>
+              <input
+                value={builderStyleNotes}
+                onChange={(event) => {
+                  setBuilderStyleNotes(event.target.value);
+                }}
+                placeholder="direct, warm underneath, playful when it fits"
+                type="text"
+              />
+            </label>
+          </div>
+        </article>
+
+        <article className="settings-card nexacore-stage-card">
+          <div className="nexacore-stage-card__header">
+            <span className="settings-card__label">Stage 3</span>
+            <h4>Attach presence and voice</h4>
+          </div>
+          <div className="nexacore-form-grid">
+            <label className="settings-field nexacore-field nexacore-field--span-2">
+              <span className="settings-field__label">Body source</span>
+              <select
+                value={builderSourcePackId}
+                onChange={(event) => {
+                  setBuilderSourcePackId(event.target.value);
+                }}
+              >
+                <option value="">Portrait or shell only</option>
+                {bodySourcePacks.map((pack) => (
+                  <option key={pack.id} value={pack.id}>
+                    {pack.display_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="nexacore-upload-card nexacore-field nexacore-field--span-2">
               <label className="pack-settings__file-label" htmlFor="builder-portrait-upload">
                 Choose portrait image
               </label>
@@ -634,101 +708,38 @@ export function PersonalityPackSettings({
                   setBuilderPortraitFile(event.target.files?.[0] ?? null);
                 }}
               />
-
-              <span className="pack-builder-card__eyebrow">Voice</span>
-              <label className="settings-field">
-                <span className="settings-field__label">Voice path</span>
-                <select
-                  value={builderVoiceProvider}
-                  onChange={(event) => {
-                    setBuilderVoiceProvider(event.target.value);
-                  }}
-                >
-                  <option value="local">Browser/local fallback</option>
-                  <option value="chatterbox">Chatterbox</option>
-                  <option value="style-bert-vits2">Style-Bert-VITS2</option>
-                </select>
-              </label>
-              <label className="settings-field">
-                <span className="settings-field__label">Voice tone</span>
-                <select
-                  value={builderVoiceStyle}
-                  onChange={(event) => {
-                    setBuilderVoiceStyle(event.target.value);
-                  }}
-                >
-                  <option value="warm">Warm</option>
-                  <option value="direct">Direct</option>
-                  <option value="gentle">Gentle</option>
-                  <option value="dramatic">Dramatic</option>
-                  <option value="expressive">Expressive</option>
-                </select>
-              </label>
-            </section>
-
-            <section className="pack-builder-card__preview">
-              <span className="pack-builder-card__eyebrow">Live preview</span>
-              <div className="pack-builder-preview">
-                <div className="pack-builder-preview__poster">
-                  {portraitPreviewUrl ? (
-                    <div
-                      className="pack-builder-preview__portrait"
-                      aria-label="Portrait selected"
-                    >
-                      Portrait ready
-                    </div>
-                  ) : (
-                    <div className="pack-builder-preview__portrait pack-builder-preview__portrait--placeholder">
-                      {(builderCompanionName || "C").slice(0, 1).toUpperCase()}
-                    </div>
-                  )}
-                  <div className="pack-builder-preview__copy">
-                    <strong>{builderCompanionName}</strong>
-                    <p>
-                      {selectedBodySourcePack
-                        ? `Linked to ${selectedBodySourcePack.display_name} for body presence`
-                        : "Portrait-first or shell-first presentation"}
-                    </p>
-                  </div>
-                </div>
-                <div className="pack-builder-preview__meta">
-                  <span>{describeVoicePreset(builderVoiceProvider)}</span>
-                  <span>{builderVoiceStyle}</span>
-                  <span>{builderPortraitFile ? "Portrait ready" : "No portrait yet"}</span>
-                </div>
-                <div className="pack-card__character">
-                  <span className="pack-card__character-label">First hello</span>
-                  <p>{builderFirstHello}</p>
-                  {builderSummary ? (
-                    <p className="pack-card__character-detail">
-                      <strong>Character read:</strong> {builderSummary}
-                    </p>
-                  ) : null}
-                  {builderScenario ? (
-                    <p className="pack-card__character-detail">
-                      <strong>Scenario:</strong> {builderScenario}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="pack-builder-preview__checks" aria-label="Draft checks">
-                  {builderReadiness.map((item) => (
-                    <span key={item.label}>
-                      {item.ready ? "Ready" : "Needs work"}: {item.label}
-                    </span>
-                  ))}
-                </div>
-                <button
-                  className="settings-action-button settings-action-button--primary"
-                  disabled={!builderDisplayName.trim() || !builderSummary.trim() || isCreatingCharacter}
-                  type="button"
-                  onClick={() => {
-                    void handleCreateCharacterPack();
-                  }}
-                >
-                  {isCreatingCharacter ? "Building character..." : "Build and use this companion"}
-                </button>
-              </div>
-            </section>
+              <p className="pack-settings__file-name">
+                {builderPortraitFile?.name ?? "No portrait selected yet"}
+              </p>
+            </div>
+            <label className="settings-field nexacore-field">
+              <span className="settings-field__label">Voice path</span>
+              <select
+                value={builderVoiceProvider}
+                onChange={(event) => {
+                  setBuilderVoiceProvider(event.target.value);
+                }}
+              >
+                <option value="local">Browser/local fallback</option>
+                <option value="chatterbox">Chatterbox</option>
+                <option value="style-bert-vits2">Style-Bert-VITS2</option>
+              </select>
+            </label>
+            <label className="settings-field nexacore-field">
+              <span className="settings-field__label">Voice tone</span>
+              <select
+                value={builderVoiceStyle}
+                onChange={(event) => {
+                  setBuilderVoiceStyle(event.target.value);
+                }}
+              >
+                <option value="warm">Warm</option>
+                <option value="direct">Direct</option>
+                <option value="gentle">Gentle</option>
+                <option value="dramatic">Dramatic</option>
+                <option value="expressive">Expressive</option>
+              </select>
+            </label>
           </div>
         </article>
       </div>

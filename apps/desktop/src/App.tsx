@@ -45,7 +45,7 @@ export default function App() {
       <main className="installer-shell installer-shell--loading">
         <section className="installer-hero">
           <div className="installer-copy">
-            <span className="eyebrow">Companion OS</span>
+            <span className="eyebrow">NexaCore</span>
             <h1>Loading the local companion environment.</h1>
             <p>
               Checking whether OpenClaw is already installed and connected.

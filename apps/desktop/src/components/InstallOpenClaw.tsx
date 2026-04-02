@@ -163,10 +163,10 @@ function getDependencySummary(dependency: DependencyStatus): string {
   }
 
   if (dependency.approx_size_mb) {
-    return `Companion OS needs ${dependency.label} to finish setup on this device.${sizeSummary}`;
+    return `NexaCore needs ${dependency.label} to finish setup on this device.${sizeSummary}`;
   }
 
-  return `Companion OS needs ${dependency.label} to finish setup on this device.`;
+  return `NexaCore needs ${dependency.label} to finish setup on this device.`;
 }
 
 function getRetryLabel(stepId: InstallerStepId): string {
@@ -574,7 +574,7 @@ export function InstallOpenClaw({
               </ol>
             ) : (
               <p className="installer-panel__hint">
-                Leave this window open. Companion OS keeps moving automatically
+                Leave this window open. NexaCore keeps moving automatically
                 whenever it is safe to do so.
               </p>
             )}

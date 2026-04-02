@@ -2600,7 +2600,7 @@ export function CompanionWorkspace() {
         }`}
       >
         <div className="stage-panel__copy">
-          <span className="eyebrow">Companion OS</span>
+                  <span className="eyebrow">NexaCore</span>
             <h1>{companionTitle} is awake.</h1>
             <p>
               {activeCharacterSummary ??
